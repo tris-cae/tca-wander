@@ -51,6 +51,24 @@ export const Fonts = Platform.select({
   },
 });
 
+// Custom Google Fonts loaded via useFonts() in _layout.tsx.
+// Use these constants anywhere you need fontFamily in a StyleSheet so that
+// a rename only needs to happen in one place.
+//
+// Libre Baskerville — elegant serif, best for large display headings
+// DM Sans          — clean geometric sans-serif, best for body text and UI labels
+export const FontFamily = {
+  // ── Libre Baskerville ──────────────────────────────────────────────────────
+  serif:              'LibreBaskerville_400Regular',
+  serifItalic:        'LibreBaskerville_400Regular_Italic',
+  serifBold:          'LibreBaskerville_700Bold',
+  // ── DM Sans ───────────────────────────────────────────────────────────────
+  body:               'DMSans_400Regular',
+  bodyItalic:         'DMSans_400Regular_Italic',
+  bodyMedium:         'DMSans_500Medium',
+  bodyBold:           'DMSans_700Bold',
+} as const;
+
 export const Spacing = {
   half: 2,
   one: 4,
