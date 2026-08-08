@@ -11,6 +11,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const K = {
   notificationsEnabled: '@settings/notificationsEnabled',
   notificationRadius:   '@settings/notificationRadiusMetres',
+  useFeet:              '@settings/useFeet',
 } as const;
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
@@ -19,6 +20,21 @@ const K = {
 export const DEFAULT_RADIUS_M  = 300;
 /** Proximity alerts are ON until the user explicitly disables them. */
 export const DEFAULT_ENABLED   = true;
+
+// ── Unit preference (feet vs metres) ─────────────────────────────────────────
+
+/** Returns true if the user prefers feet; detects US locale by default. */
+export async function getUseFeet(): Promise<boolean> {
+  const raw = await AsyncStorage.getItem(K.useFeet);
+  if (raw !== null) return raw === 'true';
+  // Default: US locale → feet, everywhere else → metres
+  const locale = Intl.DateTimeFormat().resolvedOptions().locale ?? '';
+  return locale.endsWith('-US') || locale === 'en-US';
+}
+
+export async function setUseFeet(useFeet: boolean): Promise<void> {
+  await AsyncStorage.setItem(K.useFeet, String(useFeet));
+}
 
 // ── Proximity notifications enabled / disabled ────────────────────────────────
 

@@ -36,6 +36,10 @@ export interface Place {
 
   // The exact moment the user saved this place (ISO date string, e.g. "2026-03-28T10:00:00.000Z")
   savedAt: string;
+
+  // True when the user has marked this place as already visited.
+  // Visited places show a muted grey pin and are excluded from proximity notifications.
+  visited: boolean;
 }
 
 // ─── Trip ─────────────────────────────────────────────────────────────────────

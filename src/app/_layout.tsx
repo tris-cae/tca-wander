@@ -18,6 +18,10 @@ import React, { useEffect, useState } from 'react';
 import { useColorScheme } from 'react-native';
 
 import { initDb } from '../../lib/db';
+// Importing this module registers the background location task with TaskManager.
+// It must be imported here (at the root layout) so the task is defined before
+// any navigation or component rendering happens.
+import '../../lib/background-location-task';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 
 // Keep the native splash visible until custom fonts are registered.

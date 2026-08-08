@@ -11,19 +11,19 @@
 
 export const Colors = {
   /** Warm off-white — default card and screen background */
-  mist: '#F4F6F2',
+  mist: '#F0F4EF',
 
   /** Very light sage tint — selected state, pill backgrounds, active vibe button */
-  sageTint: '#E8EDE6',
+  sageTint: '#DDE8DB',
 
   /** Mid sage green — primary accent, category labels, slider thumb, active borders */
-  sage: '#8FA888',
+  sage: '#6B8F6E',
 
   /** Deep forest green — primary action buttons (Generate Route, CTAs) */
-  forest: '#4A7046',
+  forest: '#2D5A30',
 
   /** Near-black with a green undertone — all body text and headings */
-  ink: '#1F2B1E',
+  ink: '#0F1A0F',
 
   /** Pure white — surfaces that need full contrast against mist or sage backgrounds */
   white: '#FFFFFF',
@@ -64,7 +64,7 @@ export const FontSize = {
   cardHeader: 20,
 
   /** General body text — descriptions, reasons, notes */
-  body: 15,
+  body: 14,
 
   /** Small supporting information — categories, durations, timestamps */
   metadata: 12,

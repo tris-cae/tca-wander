@@ -1,14 +1,15 @@
 import * as Location from 'expo-location';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, AppState, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Region } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomTabInset } from '@/constants/theme';
 import { Colors, FontSize, Radius, Spacing, Typography } from '../../../lib/theme';
-import { getAllPlaces } from '../../../lib/db';
+import { getAllPlaces, setPlaceVisited } from '../../../lib/db';
 import { placeSavedEvent } from '../../../lib/places-event';
+import { BACKGROUND_LOCATION_TASK } from '../../../lib/background-location-task';
 import { requestNotificationPermission, scheduleProximityAlert } from '../../../lib/notifications';
 import { placeToStop, routeStore } from '../../../lib/route-store';
 import type { Place } from '../../../lib/models';
@@ -68,11 +69,16 @@ export default function MapScreen() {
   // Tracks the current map region so zoom buttons know what delta to start from.
   // Stored in a ref so updates don't trigger re-renders.
   const currentRegion = useRef<Region>({
-    latitude: 48.8566,
-    longitude: 2.3522,
-    latitudeDelta: 0.1,
-    longitudeDelta: 0.1,
+    latitude: 0,
+    longitude: 0,
+    latitudeDelta: 60,
+    longitudeDelta: 60,
   });
+
+  // Mirror of the `places` state kept in a ref so the GPS callback — which lives
+  // in a closure created at effect mount — can always see the current place list
+  // without needing to be recreated every time places changes.
+  const placesRef = useRef<Place[]>([]);
 
   // The user's most recent GPS position
   const [userCoords, setUserCoords] = useState<{
@@ -89,6 +95,11 @@ export default function MapScreen() {
   // True when the user has explicitly denied location access
   const [permissionDenied, setPermissionDenied] = useState(false);
 
+  // True when foreground location is granted but background ("Always") is not.
+  // Background notifications require "Always Allow" — we surface a banner with
+  // a Settings deep-link so the user knows how to fix it.
+  const [bgPermDenied, setBgPermDenied] = useState(false);
+
   // ── Location ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -103,6 +114,16 @@ export default function MapScreen() {
     //                           user has already granted from Settings — never
     //                           re-prompts, so coming to foreground is silent
     //                           when permission is still denied.
+    // Snap to the device's last cached position immediately — no GPS warmup needed.
+    // This replaces the Paris fallback so the map opens near where the user actually is.
+    Location.getLastKnownPositionAsync().then((last) => {
+      if (last && mapRef.current && !centeredOnce) {
+        const coords = { latitude: last.coords.latitude, longitude: last.coords.longitude };
+        currentRegion.current = { ...coords, latitudeDelta: 0.05, longitudeDelta: 0.05 };
+        mapRef.current.animateToRegion(currentRegion.current, 0);
+      }
+    });
+
     async function startWatching(shouldRequest: boolean) {
       // Guard: only one active subscription at a time
       if (watchingRef.current) return;
@@ -125,13 +146,14 @@ export default function MapScreen() {
       // Permission is granted — hide the banner and start tracking
       setPermissionDenied(false);
       watchingRef.current = true;
-      console.log('[GPS] permission granted, starting watchPositionAsync');
+      console.log('[GPS] foreground permission granted, starting watchPositionAsync');
 
       locationSubRef.current = await Location.watchPositionAsync(
         {
-          accuracy: Location.Accuracy.Balanced,
-          timeInterval: 5000,    // Re-check at most every 5 seconds
-          distanceInterval: 10,  // Or every 10 metres — whichever comes first
+          // Bug 15 — use highest accuracy mode for precise proximity detection
+          accuracy: Location.Accuracy.BestForNavigation,
+          // Only fire when the user has moved at least 10 m, avoiding redundant checks
+          distanceInterval: 10,
         },
         (loc) => {
           const coords = {
@@ -148,12 +170,95 @@ export default function MapScreen() {
               800
             );
           }
+
+          // Bug 14 — automatic proximity check on every GPS update.
+          // Uses placesRef so we always have the current list without re-creating
+          // the subscription every time new places are saved.
+          const snapshot = placesRef.current;
+          console.log(
+            `[Proximity] GPS update — ${snapshot.length} place(s) — ` +
+            `(${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)})`
+          );
+          for (const place of snapshot) {
+            // Skip places the user has already marked as visited (Bug 13)
+            if (place.visited) {
+              console.log(`[Proximity] skipping "${place.name}" — marked as visited`);
+              continue;
+            }
+            const distKm = haversineDistanceKm(coords, place.coordinates);
+            scheduleProximityAlert(place, distKm).catch((err) =>
+              console.error(`[Proximity] scheduleProximityAlert error for "${place.name}":`, err)
+            );
+          }
         }
       );
     }
 
+    // Attempts to start the background location task.
+    // Must be called AFTER the foreground watcher is running (i.e. after
+    // foreground permission is confirmed) because iOS requires "When In Use"
+    // to be granted before it will honour a request for "Always".
+    async function maybeStartBackgroundTask(requestPermission: boolean) {
+      try {
+        const { status: bgStatus } = requestPermission
+          ? await Location.requestBackgroundPermissionsAsync()
+          : await Location.getBackgroundPermissionsAsync();
+
+        console.log('[GPS] background permission:', bgStatus);
+
+        if (bgStatus !== 'granted') {
+          // Foreground is granted but "Always Allow" is not — show a banner
+          // guiding the user to Settings > [App] > Location > Always.
+          console.warn(
+            '[BackgroundLocation] "Always Allow" not granted — ' +
+            'background proximity alerts will not fire when app is closed'
+          );
+          setBgPermDenied(true);
+          return;
+        }
+
+        setBgPermDenied(false);  // permission is fine — hide banner if showing
+
+        const alreadyRunning = await Location.hasStartedLocationUpdatesAsync(
+          BACKGROUND_LOCATION_TASK
+        );
+        if (alreadyRunning) {
+          console.log('[BackgroundLocation] task already running');
+          return;
+        }
+
+        await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
+          // Balanced accuracy saves battery without sacrificing proximity accuracy
+          accuracy: Location.Accuracy.Balanced,
+          // Wake the task every 20 m — fine-grained enough for walking distances
+          // (was 50 m which could miss narrow streets / small radius settings)
+          distanceInterval: 20,
+          // Show the blue status-bar indicator while background location is active (iOS)
+          showsBackgroundLocationIndicator: true,
+          // Do NOT set pausesUpdatesAutomatically — iOS can pause updates indefinitely
+          // when the device appears stationary, preventing proximity alerts from firing.
+          activityType: Location.ActivityType.Fitness,  // walking / cycling / travel
+        });
+        console.log('[BackgroundLocation] task started successfully');
+      } catch (err) {
+        console.error('[BackgroundLocation] failed to start task:', err);
+      }
+    }
+
+    // Wraps the original startWatching logic and, on success, fires the
+    // background task setup so both foreground UI and background checks are live.
+    async function startWatchingAndBackground(shouldRequest: boolean) {
+      await startWatching(shouldRequest);
+      // Only attempt the background setup once we know foreground is granted.
+      // getForegroundPermissionsAsync is cheap and avoids re-requesting.
+      const { status } = await Location.getForegroundPermissionsAsync();
+      if (status === 'granted') {
+        await maybeStartBackgroundTask(shouldRequest);
+      }
+    }
+
     // Initial start — requests permission when the map tab first mounts
-    startWatching(true);
+    startWatchingAndBackground(true);
 
     // AppState listener — fires whenever the app returns to the foreground.
     // If the user went to Settings, granted permission, then came back,
@@ -161,7 +266,10 @@ export default function MapScreen() {
     // and begin the subscription without needing an app restart.
     const appStateSub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
-        startWatching(false);
+        // Re-check foreground permission (shows no dialog — just silently starts
+        // tracking if the user granted it in Settings while the app was backgrounded).
+        // Also re-check background permission in case they upgraded to "Always".
+        startWatchingAndBackground(false);
       }
     });
 
@@ -175,6 +283,10 @@ export default function MapScreen() {
   }, []);
 
   // ── Data ──────────────────────────────────────────────────────────────────
+
+  // Keep placesRef in sync so the GPS callback always sees the current list.
+  // This runs after every render where `places` changes — no async needed.
+  useEffect(() => { placesRef.current = places; }, [places]);
 
   // Reload places helper — shared by both triggers below
   const reloadPlaces = useCallback(() => {
@@ -253,51 +365,6 @@ export default function MapScreen() {
       ? formatDistance(haversineDistanceKm(userCoords, selectedPlace.coordinates))
       : null;
 
-  // ── DEBUG: fire a proximity notification for the nearest saved place ────────
-  // Removed before shipping — lets us verify notification copy and logic in
-  // the simulator without needing background geofencing or a physical device.
-
-  const [debugFiring, setDebugFiring] = useState(false);
-
-  const handleDebugNotification = useCallback(async () => {
-    if (places.length === 0) {
-      console.warn('[Debug] No saved places — save at least one place first');
-      return;
-    }
-    setDebugFiring(true);
-
-    // Request permission on first press (no-op if already granted)
-    const granted = await requestNotificationPermission();
-    if (!granted) {
-      console.warn('[Debug] Notification permission denied');
-      setDebugFiring(false);
-      return;
-    }
-
-    // Find the nearest place — use current GPS position when available,
-    // otherwise fall back to the current map centre so the debug button
-    // always works even with no GPS fix.
-    const origin = userCoords ?? {
-      latitude:  currentRegion.current.latitude,
-      longitude: currentRegion.current.longitude,
-    };
-
-    let nearest  = places[0];
-    let minDist  = haversineDistanceKm(origin, nearest.coordinates);
-
-    for (const place of places.slice(1)) {
-      const d = haversineDistanceKm(origin, place.coordinates);
-      if (d < minDist) { minDist = d; nearest = place; }
-    }
-
-    console.log(
-      `[Debug] Nearest place: "${nearest.name}" — ${minDist.toFixed(3)} km`
-    );
-
-    await scheduleProximityAlert(nearest, minDist, { force: true });
-    setDebugFiring(false);
-  }, [places, userCoords]);
-
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -331,13 +398,7 @@ export default function MapScreen() {
         onRegionChangeComplete={(region) => {
           currentRegion.current = region;
         }}
-        // Shown before the first GPS fix arrives — falls back to Paris
-        initialRegion={{
-          latitude: 48.8566,
-          longitude: 2.3522,
-          latitudeDelta: 0.1,
-          longitudeDelta: 0.1,
-        }}
+        initialRegion={currentRegion.current}
       >
         {/* ── User location dot (warm orange) ── */}
         {userCoords && (
@@ -355,7 +416,7 @@ export default function MapScreen() {
           </Marker>
         )}
 
-        {/* ── Saved place pins (sage green) ── */}
+        {/* ── Saved place pins (sage green, or muted grey when visited) ── */}
         {places.map((place) => (
           <Marker
             key={place.id}
@@ -363,7 +424,7 @@ export default function MapScreen() {
               latitude: place.coordinates.lat,
               longitude: place.coordinates.lng,
             }}
-            pinColor={Colors.sage}
+            pinColor={place.visited ? '#C8D4C4' : Colors.sage}
             onPress={() => {
               // Set the suppression flag BEFORE this event bubbles to MapView.onPress.
               // The map handler runs synchronously after this returns and will see
@@ -375,13 +436,34 @@ export default function MapScreen() {
         ))}
       </MapView>
 
-      {/* ── Zoom controls ── */}
+      {/* ── Zoom + re-centre controls ── */}
       <View
         style={[
           styles.zoomCluster,
           { bottom: insets.bottom + BottomTabInset + 16, right: Spacing.xl },
         ]}
       >
+        {/* Bug 12 — re-centre button: pans the map back to the user's GPS position */}
+        <Pressable
+          style={[styles.zoomBtn, !userCoords && styles.zoomBtnDisabled]}
+          onPress={() => {
+            if (!userCoords || !mapRef.current) return;
+            mapRef.current.animateToRegion(
+              {
+                ...userCoords,
+                // Keep the current zoom level but never zoom out further than street level
+                latitudeDelta:  Math.min(currentRegion.current.latitudeDelta, 0.01),
+                longitudeDelta: Math.min(currentRegion.current.longitudeDelta, 0.01),
+              },
+              600
+            );
+          }}
+          disabled={!userCoords}
+          hitSlop={4}
+        >
+          <Text style={styles.recentreBtnText}>⊙</Text>
+        </Pressable>
+        <View style={styles.zoomDivider} />
         <Pressable
           style={styles.zoomBtn}
           onPress={() => handleZoom('in')}
@@ -400,36 +482,40 @@ export default function MapScreen() {
       </View>
 
       {/* ── Save a place FAB ── */}
+      {/* Bottom offset: cluster is 3 × 44 px + 2 hairlines ≈ 134 px, starts at +16 → top at +150. Add 16 px gap. */}
       <Pressable
-        style={[styles.fab, { bottom: insets.bottom + BottomTabInset + 120 }]}
+        style={[styles.fab, { bottom: insets.bottom + BottomTabInset + 166 }]}
         onPress={() => router.push('/save')}
       >
         <Text style={styles.fabText}>+</Text>
       </Pressable>
 
-      {/* ── DEBUG: proximity notification trigger ── */}
-      {/* TODO: remove before shipping to production */}
-      <Pressable
-        style={[styles.debugBtn, { top: insets.top + 12 }]}
-        onPress={handleDebugNotification}
-        disabled={debugFiring || places.length === 0}
-      >
-        <Text style={styles.debugBtnText}>
-          {debugFiring
-            ? '⏳ firing…'
-            : places.length === 0
-              ? '🔕 no places'
-              : '🔔 debug notify'}
-        </Text>
-      </Pressable>
-
-      {/* ── Permission-denied banner ── */}
+      {/* ── Permission-denied banner (foreground location blocked entirely) ── */}
       {permissionDenied && (
         <View style={[styles.permissionBanner, { top: insets.top + 12 }]}>
           <Text style={styles.permissionText}>
             Location access denied — enable it in Settings to show your position
           </Text>
         </View>
+      )}
+
+      {/*
+        ── Background permission banner ────────────────────────────────────────
+        Shows when foreground location is granted but "Always Allow" is not.
+        Background proximity alerts require "Always" — tapping opens Settings
+        directly to the app's location permission page.
+        Only shown when foreground permission is fine (not shown alongside the
+        foreground-denied banner above).
+      */}
+      {!permissionDenied && bgPermDenied && (
+        <Pressable
+          style={[styles.bgPermBanner, { top: insets.top + 12 }]}
+          onPress={() => Linking.openSettings()}
+        >
+          <Text style={styles.bgPermText}>
+            Background alerts need "Always" location access — tap to open Settings
+          </Text>
+        </Pressable>
       )}
 
       {/* ── Bottom info card — slides up when a pin is tapped ── */}
@@ -520,6 +606,23 @@ export default function MapScreen() {
           >
             <Text style={styles.routeButtonText}>Add to today's route</Text>
           </Pressable>
+
+          {/* Bug 13 — visited toggle: mutes the pin and silences notifications */}
+          <Pressable
+            style={styles.visitedButton}
+            onPress={async () => {
+              const newVisited = !selectedPlace.visited;
+              await setPlaceVisited(selectedPlace.id, newVisited);
+              // Update the card state immediately for instant feedback
+              setSelectedPlace((prev) => (prev ? { ...prev, visited: newVisited } : null));
+              // Reload so the map pin colour also updates
+              reloadPlaces();
+            }}
+          >
+            <Text style={styles.visitedButtonText}>
+              {selectedPlace.visited ? '↩ Mark as unvisited' : '✓ Mark as visited'}
+            </Text>
+          </Pressable>
         </Animated.View>
       )}
     </View>
@@ -576,6 +679,27 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 
+  // ── Background permission banner ───────────────────────────────────────────
+  // Amber-tinted so it's visually distinct from the red foreground-denied banner.
+  // Pressable — tapping opens Settings directly to the app's location page.
+
+  bgPermBanner: {
+    position:          'absolute',
+    left:              Spacing.lg,
+    right:             Spacing.lg,
+    backgroundColor:   '#B8620099',  // amber at ~60 % opacity
+    borderRadius:      Radius.md,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical:   10,
+  },
+  bgPermText: {
+    fontFamily: Typography.bodyFont,
+    color:      Colors.white,
+    fontSize:   13,
+    textAlign:  'center',
+    lineHeight: 18,
+  },
+
   // ── Zoom controls ─────────────────────────────────────────────────────────
 
   zoomCluster: {
@@ -602,6 +726,18 @@ const styles = StyleSheet.create({
     fontSize: 22,
     color: Colors.ink,
     lineHeight: 26,
+  },
+
+  // Greyed out when there is no GPS fix yet (re-centre button only)
+  zoomBtnDisabled: {
+    opacity: 0.35,
+  },
+
+  // Re-centre icon — slightly smaller than +/− to look balanced
+  recentreBtnText: {
+    fontSize: 18,
+    color: Colors.forest,
+    lineHeight: 24,
   },
 
   zoomDivider: {
@@ -658,10 +794,10 @@ const styles = StyleSheet.create({
   },
   cardCategory: {
     fontFamily: Typography.bodyFont,
-    fontSize: FontSize.metadata,  // 12 px
+    fontSize: 10,
     color: Colors.sage,
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    letterSpacing: 0.8,
   },
 
   // Pill showing straight-line distance to the place
@@ -680,10 +816,10 @@ const styles = StyleSheet.create({
   // "YOUR NOTE" label above the note box
   noteSectionLabel: {
     fontFamily: Typography.bodyFont,
-    fontSize: 11,
+    fontSize: 10,
     color: Colors.sage,
     textTransform: 'uppercase',
-    letterSpacing: 0.7,            // ≈ 0.06 em at 11 px
+    letterSpacing: 0.8,
     marginBottom: Spacing.xs,
   },
 
@@ -703,12 +839,14 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
 
-  // "Added from …" provenance line
+  // "ADDED FROM …" provenance line — styled as a section label
   addedFrom: {
-    fontFamily: Typography.bodyFont,
-    fontSize: FontSize.metadata,   // 12 px
-    color: Colors.sage,
-    marginBottom: Spacing.lg,
+    fontFamily:    Typography.bodyFont,
+    fontSize:      10,
+    color:         Colors.sage,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom:  Spacing.lg,
   },
 
   // Primary action button
@@ -765,6 +903,20 @@ const styles = StyleSheet.create({
     color: Colors.sage,
   },
 
+  // ── Visited toggle button (below primary CTA) ─────────────────────────────
+
+  visitedButton: {
+    marginTop: Spacing.sm,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  visitedButtonText: {
+    fontFamily: Typography.bodyFont,
+    fontSize: FontSize.metadata,
+    color: Colors.sage,
+  },
+
   // ── Save a place FAB ───────────────────────────────────────────────────────
 
   fab: {
@@ -789,22 +941,4 @@ const styles = StyleSheet.create({
     lineHeight: 32,
   },
 
-  // ── DEBUG button — remove before shipping ─────────────────────────────────
-
-  debugBtn: {
-    position: 'absolute',
-    left: Spacing.lg,
-    backgroundColor: '#1c1c1ecc',  // translucent near-black — stands out on any map tile
-    borderRadius: Radius.sm,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderWidth: 1,
-    borderColor: '#f5a623',        // amber border — unmistakably a dev tool
-  },
-  debugBtnText: {
-    fontFamily: Typography.bodyFont,
-    fontSize: 13,
-    color: '#f5a623',              // amber text to match border
-    letterSpacing: 0.2,
-  },
 });

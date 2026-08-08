@@ -10,6 +10,10 @@ let _db: SQLite.SQLiteDatabase | null = null;
 // Call this once near the top of your app (e.g. in App.tsx or _layout.tsx) before
 // using any other function in this file.
 export async function initDb(): Promise<void> {
+  // Guard: if already initialised in this JS context, do nothing.
+  // The background location task may call this in a fresh context after app
+  // termination — the guard prevents double-opens when the app is running.
+  if (_db) return;
   _db = await SQLite.openDatabaseAsync('travel.db');
   await _createTables(_db);
 }
@@ -52,6 +56,15 @@ async function _createTables(db: SQLite.SQLiteDatabase): Promise<void> {
   // Migration: add address column to existing databases that predate this field
   try {
     await db.execAsync(`ALTER TABLE places ADD COLUMN address TEXT`);
+  } catch {
+    // Column already exists — safe to ignore
+  }
+
+  // Migration: add visited flag (Bug 13) — 0 = not visited, 1 = visited
+  try {
+    await db.execAsync(
+      `ALTER TABLE places ADD COLUMN visited INTEGER NOT NULL DEFAULT 0`
+    );
   } catch {
     // Column already exists — safe to ignore
   }
@@ -153,6 +166,7 @@ type PlaceRow = {
   sourceUrl: string | null;
   sourceType: 'instagram' | 'maps' | 'manual';
   savedAt: string;
+  visited: number;  // SQLite stores booleans as integers: 0 = false, 1 = true
 };
 
 // Converts a flat database row into a Place object with a nested coordinates object
@@ -168,6 +182,8 @@ function rowToPlace(row: PlaceRow): Place {
     sourceUrl: row.sourceUrl,
     sourceType: row.sourceType,
     savedAt: row.savedAt,
+    // SQLite returns 0/1 integers — convert to a proper boolean
+    visited: row.visited === 1,
   };
 }
 
@@ -227,17 +243,18 @@ async function _getItineraryDays(
 // ─── Places — Save ────────────────────────────────────────────────────────────
 
 // Saves a brand-new place to the database.
-// You don't need to provide id or savedAt — they are generated automatically.
+// You don't need to provide id, savedAt, or visited — they are set automatically.
 // Returns the complete Place object including the generated id and savedAt.
 export async function savePlace(
-  input: Omit<Place, 'id' | 'savedAt'>
+  input: Omit<Place, 'id' | 'savedAt' | 'visited'>
 ): Promise<Place> {
   const db = getDb();
-  const place: Place = { ...input, id: generateId(), savedAt: now() };
+  // New places always start as unvisited
+  const place: Place = { ...input, id: generateId(), savedAt: now(), visited: false };
 
   await db.runAsync(
-    `INSERT INTO places (id, name, category, lat, lng, address, note, sourceUrl, sourceType, savedAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO places (id, name, category, lat, lng, address, note, sourceUrl, sourceType, savedAt, visited)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       place.id,
       place.name,
@@ -249,6 +266,7 @@ export async function savePlace(
       place.sourceUrl,
       place.sourceType,
       place.savedAt,
+      0,                      // visited = false
     ]
   );
 
@@ -363,6 +381,10 @@ export async function updatePlace(
     fields.push('sourceType = ?');
     values.push(updates.sourceType);
   }
+  if (updates.visited !== undefined) {
+    fields.push('visited = ?');
+    values.push(updates.visited ? 1 : 0);
+  }
 
   // Nothing to do if no recognised fields were passed
   if (fields.length === 0) return;
@@ -371,6 +393,17 @@ export async function updatePlace(
     `UPDATE places SET ${fields.join(', ')} WHERE id = ?`,
     [...values, id]
   );
+}
+
+// Toggles the visited flag on a single place without requiring a full updatePlace call.
+// Setting visited = true mutes the map pin colour and suppresses proximity notifications.
+export async function setPlaceVisited(id: string, visited: boolean): Promise<void> {
+  const db = getDb();
+  await db.runAsync(
+    `UPDATE places SET visited = ? WHERE id = ?`,
+    [visited ? 1 : 0, id]
+  );
+  console.log(`[DB] setPlaceVisited: place ${id} → visited=${visited}`);
 }
 
 // ─── Places — Delete ──────────────────────────────────────────────────────────

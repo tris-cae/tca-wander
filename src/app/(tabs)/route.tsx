@@ -289,8 +289,8 @@ const styles = StyleSheet.create({
   },
 
   screenTitle: {
-    fontFamily: Typography.displayFont,
-    fontSize: FontSize.screenTitle,   // 28 px
+    fontFamily: Typography.bodyFontMedium,
+    fontSize: FontSize.screenTitle,
     color: Colors.ink,
     marginBottom: Spacing.xs,
   },
@@ -307,10 +307,10 @@ const styles = StyleSheet.create({
 
   sectionLabel: {
     fontFamily: Typography.bodyFont,
-    fontSize: 11,
+    fontSize: 10,
     color: Colors.sage,
     textTransform: 'uppercase',
-    letterSpacing: 0.7,
+    letterSpacing: 0.8,
     marginBottom: Spacing.md,
   },
 
@@ -528,17 +528,17 @@ const styles = StyleSheet.create({
 
   cardName: {
     fontFamily: Typography.displayFont,
-    fontSize: FontSize.body,          // 15 px
+    fontSize: FontSize.body,          // 14 px
     color: Colors.ink,
     marginBottom: 3,
   },
 
   cardCategory: {
     fontFamily: Typography.bodyFont,
-    fontSize: 11,
+    fontSize: 10,
     color: Colors.sage,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
     marginBottom: Spacing.sm,
   },
 

@@ -37,7 +37,7 @@ const CATEGORIES = [
   'Other',
 ] as const;
 
-const LABEL_LETTER_SPACING = 0.7;
+const LABEL_LETTER_SPACING = 0.8;
 const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ?? '';
 
 // ─── Reverse geocode ──────────────────────────────────────────────────────────
@@ -106,7 +106,8 @@ export default function SaveScreen() {
   const [pickedCoordinates, setPickedCoordinates] = useState<{ lat: number; lng: number } | null>(null);
   const [geocoding,         setGeocoding]         = useState(false);
 
-  const autocompleteRef = useRef<any>(null);
+  const autocompleteRef     = useRef<any>(null);
+  const nameAutocompleteRef = useRef<any>(null);
 
   // ── Error auto-dismiss ─────────────────────────────────────────────────────
   // Each call to showError starts a 3-second countdown that clears the message.
@@ -126,6 +127,18 @@ export default function SaveScreen() {
     return () => {
       if (errorDismissTimer.current) clearTimeout(errorDismissTimer.current);
     };
+  }, []);
+
+  // ── Pre-fill name autocomplete in edit mode ────────────────────────────────
+  // The GooglePlacesAutocomplete input is uncontrolled (we only wire onChangeText),
+  // so we must imperatively set the initial text after the component mounts.
+
+  useEffect(() => {
+    if (paramName && nameAutocompleteRef.current) {
+      nameAutocompleteRef.current.setAddressText(paramName);
+    }
+  // Params are stable for the lifetime of this screen — run once on mount only
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Reverse geocode pinned coords on mount ─────────────────────────────────
@@ -267,21 +280,99 @@ export default function SaveScreen() {
           {isEditing ? 'Edit destination' : 'Save a destination'}
         </Text>
 
+        {/*
+          ── Name field ──────────────────────────────────────────────────────
+          GooglePlacesAutocomplete searching establishments so the user can
+          type a café / restaurant name and pick a real result. Selecting a
+          suggestion auto-fills the name and, when the address is still empty,
+          pre-fills the address + coordinates too.
+          zIndex 30 via styles.container so its dropdown overlays everything below.
+        */}
         <Text style={styles.sectionLabel}>Place name</Text>
-        <TextInput
-          style={styles.textInput}
-          value={name}
-          onChangeText={setName}
+        <GooglePlacesAutocomplete
+          ref={nameAutocompleteRef}
           placeholder="e.g. Café de Flore"
-          placeholderTextColor={`${Colors.sage}99`}
-          autoCapitalize="words"
-          autoCorrect={false}
-          returnKeyType="next"
+          query={{ key: GOOGLE_API_KEY, language: 'en', types: 'establishment' }}
+          fetchDetails={true}
+          onPress={(data, details) => {
+            const mainText =
+              data.structured_formatting?.main_text ?? data.description;
+            setName(mainText);
+            nameAutocompleteRef.current?.setAddressText(mainText);
+            if (!pickedAddress) {
+              const loc = details?.geometry?.location;
+              if (loc) setPickedCoordinates({ lat: loc.lat, lng: loc.lng });
+              const addr = details?.formatted_address ?? data.description;
+              if (addr) setPickedAddress(addr);
+            }
+          }}
+          onFail={(err) => console.warn('[Places Name] onFail:', JSON.stringify(err))}
+          debounce={300}
+          minLength={1}
+          enablePoweredByContainer={false}
+          keyboardShouldPersistTaps="always"
+          textInputProps={{
+            onChangeText:        setName,
+            autoCapitalize:      'words',
+            autoCorrect:         false,
+            returnKeyType:       'next',
+            placeholderTextColor: `${Colors.sage}99`,
+          }}
+          styles={{
+            container:          { flex: 0, zIndex: 30 },
+            textInputContainer: { backgroundColor: 'transparent' },
+            textInput: {
+              fontFamily:        Typography.bodyFont,
+              fontSize:          FontSize.body,
+              color:             Colors.ink,
+              backgroundColor:   Colors.white,
+              borderWidth:       0.5,
+              borderColor:       Colors.sage,
+              borderRadius:      Radius.sm,
+              paddingHorizontal: Spacing.md,
+              height:            44,
+              marginBottom:      0,
+            },
+            listView: {
+              backgroundColor: Colors.white,
+              borderWidth:     0.5,
+              borderColor:     Colors.sage,
+              borderRadius:    Radius.sm,
+              maxHeight:       200,
+              marginTop:       2,
+              elevation:       6,
+              shadowColor:     Colors.ink,
+              shadowOffset:    { width: 0, height: 2 },
+              shadowOpacity:   0.1,
+              shadowRadius:    4,
+            },
+            row: {
+              paddingHorizontal: Spacing.md,
+              paddingVertical:   Spacing.sm,
+              backgroundColor:   Colors.white,
+            },
+            description: {
+              fontFamily: Typography.bodyFont,
+              fontSize:   FontSize.metadata,
+              color:      Colors.ink,
+            },
+            separator: {
+              height:          StyleSheet.hairlineWidth,
+              backgroundColor: Colors.sageTint,
+            },
+          }}
         />
 
+        {/*
+          ── Address field ────────────────────────────────────────────────────
+          Shown as a confirmed chip when an address is already picked (either
+          from name autocomplete or from a map long-press reverse geocode).
+          Tap the chip to clear it and reveal the search field again.
+          zIndex 20 via styles.container — lower than name so name dropdown
+          renders on top when both fields briefly compete.
+        */}
         <Text style={styles.sectionLabel}>Address</Text>
 
-        {/* Confirmed address chip */}
         {pickedAddress ? (
           <Pressable
             style={styles.addressChip}
@@ -308,9 +399,6 @@ export default function SaveScreen() {
             <Text style={styles.geocodingText}>Looking up address…</Text>
           </View>
         ) : (
-          // Autocomplete is a FlatList — keeping it outside ScrollView
-          // avoids the "VirtualizedLists should never be nested" warning.
-          // The listView is absolutely positioned so it overlays the form below.
           <GooglePlacesAutocomplete
             ref={autocompleteRef}
             placeholder="Search for an address…"
@@ -323,10 +411,9 @@ export default function SaveScreen() {
             }}
             onFail={(err) => console.warn('[Places] onFail:', JSON.stringify(err))}
             debounce={300}
-            minLength={2}
+            minLength={1}
             enablePoweredByContainer={false}
             keyboardShouldPersistTaps="always"
-            listViewDisplayed="auto"
             styles={{
               container:          { flex: 0, zIndex: 20 },
               textInputContainer: { backgroundColor: 'transparent' },
@@ -343,15 +430,12 @@ export default function SaveScreen() {
                 marginBottom:      0,
               },
               listView: {
-                position:        'absolute',
-                top:             48,  // clears the 44px input + 2px gap
-                left:            0,
-                right:           0,
                 backgroundColor: Colors.white,
                 borderWidth:     0.5,
                 borderColor:     Colors.sage,
                 borderRadius:    Radius.sm,
-                zIndex:          20,
+                maxHeight:       200,
+                marginTop:       2,
                 elevation:       6,
                 shadowColor:     Colors.ink,
                 shadowOffset:    { width: 0, height: 2 },
@@ -457,10 +541,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.mist,
   },
 
-  // Fixed top section — title, name input, address autocomplete
+  // Fixed top section — title, name autocomplete, address autocomplete
   header: {
     paddingHorizontal: Spacing.xl,
-    zIndex: 20,       // must be above the ScrollView so the dropdown overlays it
+    zIndex: 30,       // must be above the ScrollView so both dropdowns overlay it
   },
 
   // Scrollable lower section — category, note, save button
@@ -475,7 +559,7 @@ const styles = StyleSheet.create({
   },
 
   screenTitle: {
-    fontFamily: Typography.displayFont,
+    fontFamily: Typography.bodyFontMedium,
     fontSize:   FontSize.cardHeader,
     color:      Colors.ink,
     marginBottom: Spacing.xl,
@@ -483,7 +567,7 @@ const styles = StyleSheet.create({
 
   sectionLabel: {
     fontFamily:    Typography.bodyFont,
-    fontSize:      11,
+    fontSize:      10,
     color:         Colors.sage,
     textTransform: 'uppercase',
     letterSpacing: LABEL_LETTER_SPACING,

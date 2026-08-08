@@ -10,9 +10,12 @@
     "ios": {
       "icon": "./assets/expo.icon",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "This app uses your location to show where you are on the map and to save places at your current position."
+        "NSLocationWhenInUseUsageDescription": "This app uses your location to show where you are on the map and to save places at your current position.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow Wander to use your location in the background so it can alert you when you're near a saved place, even when the app is closed.",
+        "NSLocationAlwaysUsageDescription": "Allow Wander to use your location in the background so it can alert you when you're near a saved place, even when the app is closed.",
+        "UIBackgroundModes": ["location", "fetch"]
       },
-      "bundleIdentifier": "com.anonymous.MyFirstApp"
+      "bundleIdentifier": "com.tristanandrews.wander"
     },
     "android": {
       "adaptiveIcon": {
@@ -54,7 +57,9 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "This app uses your location to show where you are on the map."
+          "locationWhenInUsePermission": "This app uses your location to show where you are on the map.",
+          "locationAlwaysAndWhenInUsePermission": "Allow Wander to use your location in the background so it can alert you when you're near a saved place, even when the app is closed.",
+          "isIosBackgroundLocationEnabled": true
         }
       ]
     ],
