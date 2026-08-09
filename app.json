@@ -8,7 +8,7 @@
     "scheme": "noticeexplore",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon",
+      "icon": "./assets/images/icon.png",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "This app uses your location to show where you are on the map and to save places at your current position.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow Notice Explore to use your location in the background so it can alert you when you're near a saved place, even when the app is closed.",
