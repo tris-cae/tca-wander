@@ -34,7 +34,7 @@ The target user is someone who travels — domestically or internationally — a
 | Tap card → Edit or Add to Route | ✅ Shipped |
 | Route tab (manual stop ordering) | ✅ Shipped |
 | Profile: notification radius slider (ft / m) | ✅ Shipped |
-| AI route intelligence (Claude) | 🔜 Planned |
+| AI route intelligence (Claude via Cloudflare Worker) | 🚧 Worker built, deploying |
 | AI natural language place search (Claude) | 🔜 Planned |
 | Editable city folder names | 🔜 Planned |
 | Cloud sync / multi-device | 🔜 Planned (requires backend) |
@@ -64,17 +64,15 @@ The target user is someone who travels — domestically or internationally — a
 - **DM Sans** — all other UI text (clean, readable)
 - Colour palette: forest `#2D5A30`, sage `#6B8F6E`, mist `#F0F4EF`, ink `#0F1A0F`
 
-### Backend (planned — AWS)
-The app is currently local-first. When backend is introduced it should be:
+### Backend (in progress — Cloudflare)
+The app is currently local-first. The backend layer is being introduced incrementally starting with the AI proxy:
 
-- **AWS Lambda** — serverless functions for API endpoints (cost-effective, scales to zero)
-- **AWS API Gateway** — HTTP API in front of Lambda
-- **AWS DynamoDB** — user place data, accounts (low ops overhead, scales well)
-- **AWS S3** — any media / assets storage
-- **AWS Cognito** — user auth (integrates cleanly with the above)
-- **Anthropic Claude API** — called from Lambda, **never from the client** (see Security below)
+- **Cloudflare Workers** — serverless functions at the edge (generous free tier, global, zero cold-start)
+- **Anthropic Claude API** — called from the Worker, **never from the client** (see Security below)
+- **Cloudflare D1** — SQLite-compatible edge database (planned, for cloud sync)
+- **Cloudflare R2** — object storage for any media / assets (planned)
 
-AWS is the chosen backend because it scales well past the free tier without surprising costs, Lambda + DynamoDB is a proven mobile backend pattern, and it's familiar territory for the collaborating developer.
+Cloudflare is chosen for its free tier generosity, zero cold-starts, and global edge deployment. AWS remains an option for future scale if Cloudflare's limits become a constraint.
 
 ### AI Integration (planned)
 
@@ -101,17 +99,17 @@ Two Claude-powered features are planned. Both must be called via the backend —
 
 `EXPO_PUBLIC_` environment variables are baked into the JavaScript bundle at build time. Anyone who downloads the `.ipa`, unzips it, and reads the bundle can find them. The key currently lives in `.env` — it must move to the backend before any Claude features go live or before the app is distributed publicly.
 
-**Correct architecture:**
+**Correct architecture (now in place for AI features):**
 ```
-App  →  AWS API Gateway  →  Lambda (holds API key in env)  →  Claude API
+App  →  Cloudflare Worker (holds ANTHROPIC_API_KEY as a secret)  →  Claude API
 ```
 
-The Lambda function should:
-- Verify the caller is the legitimate app (JWT from Cognito, or a signed request)
-- Rate-limit per user to prevent abuse
-- Never return the raw API key to the client
+The Worker:
+- Holds the API key as a Cloudflare secret — it never touches the app bundle
+- Validates inputs (vibe, places count, hours) before forwarding to Claude
+- Returns only Claude's selection to the app — the raw key is never returned
 
-Until the backend exists, the Anthropic key in `.env` should be kept revoked and never committed to the repo.
+The Anthropic key has been removed from `.env`. The old key should be revoked at console.anthropic.com → API Keys.
 
 ---
 
@@ -131,8 +129,8 @@ After install, trust the profile at **Settings → General → VPN & Device Mana
 
 ### Environment variables (`.env` — not committed)
 ```
-EXPO_PUBLIC_GOOGLE_PLACES_API_KEY=...   # Google Places + Geocoding API
-EXPO_PUBLIC_ANTHROPIC_API_KEY=...       # DO NOT ship in app — move to backend before use
+EXPO_PUBLIC_GOOGLE_PLACES_API_KEY=...       # Google Places + Geocoding API
+EXPO_PUBLIC_ITINERARY_WORKER_URL=...        # Cloudflare Worker URL (set after wrangler deploy)
 ```
 
 ---
@@ -148,10 +146,10 @@ EXPO_PUBLIC_ANTHROPIC_API_KEY=...       # DO NOT ship in app — move to backend
 
 ## Roadmap Priority Order
 
-1. Move Anthropic key to AWS Lambda proxy before any Claude features ship
+1. ~~Move Anthropic key to a server-side proxy~~ ✅ Done (Cloudflare Worker)
 2. AI route intelligence (ties into existing Route tab)
 3. AI natural language place search
 4. Editable city folder names
 5. Instagram import (parse saved posts for place names)
-6. Cloud sync + user accounts (AWS backend)
+6. Cloud sync + user accounts (Cloudflare D1 + auth)
 7. App Store submission
