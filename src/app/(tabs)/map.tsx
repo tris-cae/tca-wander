@@ -589,10 +589,12 @@ export default function MapScreen() {
             </>
           ) : null}
 
-          {/* How the place was originally saved */}
-          <Text style={styles.addedFrom}>
-            Added from {formatSourceType(selectedPlace.sourceType)}
-          </Text>
+          {/* Only show import source when the place came from an external import */}
+          {selectedPlace.sourceType !== 'manual' && (
+            <Text style={styles.addedFrom}>
+              Added from {formatSourceType(selectedPlace.sourceType)}
+            </Text>
+          )}
 
           {/* Primary CTA */}
           <Pressable

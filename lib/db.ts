@@ -313,8 +313,8 @@ export async function getPlaceByCoordinates(
 }
 
 // Finds all places within a given radius of a coordinate.
-// radiusKm defaults to 1 km. Uses a bounding-box approximation which is
-// fast because it can use the lat/lng index without any trig in SQL.
+// Uses a bounding-box SQL query (fast — hits the lat/lng index) followed by
+// a haversine post-filter to trim the square corners down to a true circle.
 export async function getPlacesNearCoordinates(
   lat: number,
   lng: number,
@@ -322,9 +322,8 @@ export async function getPlacesNearCoordinates(
 ): Promise<Place[]> {
   const db = getDb();
 
-  // 1 degree of latitude is always about 111.32 km
+  // 1 degree of latitude ≈ 111.32 km
   const latDelta = radiusKm / 111.32;
-  // 1 degree of longitude gets shorter as you move toward the poles
   const lngDelta = radiusKm / (111.32 * Math.cos((lat * Math.PI) / 180));
 
   const rows = await db.getAllAsync<PlaceRow>(
@@ -335,7 +334,22 @@ export async function getPlacesNearCoordinates(
     [lat - latDelta, lat + latDelta, lng - lngDelta, lng + lngDelta]
   );
 
-  return rows.map(rowToPlace);
+  // Post-filter: haversine check removes corner candidates that are inside
+  // the bounding box but outside the actual circle radius.
+  return rows
+    .map(rowToPlace)
+    .filter((p) => haversineKm(lat, lng, p.coordinates.lat, p.coordinates.lng) <= radiusKm);
+}
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R    = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
 }
 
 // ─── Places — Update ──────────────────────────────────────────────────────────

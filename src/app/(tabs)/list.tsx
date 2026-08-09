@@ -139,11 +139,13 @@ function PlaceCard({ place, onEdit, onDelete, onRoute }: PlaceCardProps) {
       >
         <View style={styles.cardHeader}>
           <Text style={styles.cardName} numberOfLines={1}>{place.name}</Text>
-          <View style={styles.sourceBadge}>
-            <Text style={styles.sourceBadgeText}>
-              {formatSourceType(place.sourceType)}
-            </Text>
-          </View>
+          {place.sourceType !== 'manual' && (
+            <View style={styles.sourceBadge}>
+              <Text style={styles.sourceBadgeText}>
+                {formatSourceType(place.sourceType)}
+              </Text>
+            </View>
+          )}
         </View>
 
         <Text style={styles.cardCategory}>{place.category}</Text>
