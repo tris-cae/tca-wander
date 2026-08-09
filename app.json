@@ -1,21 +1,21 @@
 {
   "expo": {
-    "name": "MyFirstApp",
-    "slug": "MyFirstApp",
+    "name": "Notice Explore",
+    "slug": "notice-explore",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "myfirstapp",
+    "scheme": "noticeexplore",
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "This app uses your location to show where you are on the map and to save places at your current position.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow Wander to use your location in the background so it can alert you when you're near a saved place, even when the app is closed.",
-        "NSLocationAlwaysUsageDescription": "Allow Wander to use your location in the background so it can alert you when you're near a saved place, even when the app is closed.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow Notice Explore to use your location in the background so it can alert you when you're near a saved place, even when the app is closed.",
+        "NSLocationAlwaysUsageDescription": "Allow Notice Explore to use your location in the background so it can alert you when you're near a saved place, even when the app is closed.",
         "UIBackgroundModes": ["location", "fetch"]
       },
-      "bundleIdentifier": "com.tristanandrews.wander"
+      "bundleIdentifier": "com.tristanandrews.noticeexplore"
     },
     "android": {
       "adaptiveIcon": {
@@ -58,7 +58,7 @@
         "expo-location",
         {
           "locationWhenInUsePermission": "This app uses your location to show where you are on the map.",
-          "locationAlwaysAndWhenInUsePermission": "Allow Wander to use your location in the background so it can alert you when you're near a saved place, even when the app is closed.",
+          "locationAlwaysAndWhenInUsePermission": "Allow Notice Explore to use your location in the background so it can alert you when you're near a saved place, even when the app is closed.",
           "isIosBackgroundLocationEnabled": true
         }
       ]

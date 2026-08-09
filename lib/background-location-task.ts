@@ -20,7 +20,7 @@ import { scheduleProximityAlert } from './notifications';
 // Exported so map.tsx can reference the same string when calling
 // startLocationUpdatesAsync / hasStartedLocationUpdatesAsync.
 
-export const BACKGROUND_LOCATION_TASK = 'wander-background-location';
+export const BACKGROUND_LOCATION_TASK = 'notice-explore-background-location';
 
 // ── Haversine distance ────────────────────────────────────────────────────────
 // Duplicated from map.tsx rather than imported, because TaskManager loads this
