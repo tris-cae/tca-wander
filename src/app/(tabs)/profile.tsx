@@ -111,6 +111,9 @@ export default function ProfileScreen() {
       setNotificationsEnabledState(enabled);
       setRadiusM(radius);
       setUseFeetState2(feet);
+    }).catch(() => {
+      // AsyncStorage failure — fall back to defaults already set in useState
+    }).finally(() => {
       setLoaded(true);
     });
   }, []);

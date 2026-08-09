@@ -61,13 +61,14 @@ export default function RootLayout() {
       });
   }, []);
 
-  // Reveal the app once fonts are ready (or immediately on error so the
-  // UI still appears — React Native falls back to the system font).
+  // Reveal the app once both fonts AND the database are ready.
+  // Hiding splash before dbReady causes a blank flash between the native
+  // splash and the first render (nothing to show until dbReady is true).
   useEffect(() => {
-    if (fontsLoaded || fontError) {
+    if ((fontsLoaded || fontError) && dbReady) {
       SplashScreen.hideAsync();
     }
-  }, [fontsLoaded, fontError]);
+  }, [fontsLoaded, fontError, dbReady]);
 
   // Bug 8 — Request notification permission on every app open when status is
   // still undetermined. Fires once the app is fully ready (fonts + DB) so the

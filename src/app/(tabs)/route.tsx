@@ -23,9 +23,10 @@ import { routeStore } from '../../../lib/route-store';
 // ─── Vibe options ─────────────────────────────────────────────────────────────
 
 const VIBES: { key: Vibe; label: string; emoji: string }[] = [
-  { key: 'relaxed',      label: 'Relaxed', emoji: '☕' },
-  { key: 'packed',       label: 'Packed',  emoji: '⚡' },
-  { key: 'food-focused', label: 'Food',    emoji: '🍽' },
+  { key: 'relaxed',        label: 'Relaxed',  emoji: '☕' },
+  { key: 'packed',         label: 'Packed',   emoji: '⚡' },
+  { key: 'food-focused',   label: 'Food',     emoji: '🍽' },
+  { key: 'culture-focused', label: 'Culture', emoji: '🏛' },
 ];
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -86,7 +87,10 @@ export default function RouteScreen() {
         vibe
       );
 
-      setStops(result);
+      // Merge: keep manually-added stops that the AI didn't include
+      const aiPlaceIds = new Set(result.map((s) => s.placeId));
+      const manualOnly = routeStore.getAll().filter((s) => !aiPlaceIds.has(s.placeId));
+      setStops([...result, ...manualOnly]);
       setStatus('success');
     } catch (err) {
       setErrMsg(err instanceof Error ? err.message : 'Something went wrong.');

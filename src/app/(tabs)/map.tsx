@@ -125,8 +125,10 @@ export default function MapScreen() {
     });
 
     async function startWatching(shouldRequest: boolean) {
-      // Guard: only one active subscription at a time
+      // Guard: set flag immediately (before any await) so concurrent calls
+      // can't both pass the check and create duplicate subscriptions.
       if (watchingRef.current) return;
+      watchingRef.current = true;
 
       const { status } = shouldRequest
         ? await Location.requestForegroundPermissionsAsync()
@@ -135,7 +137,7 @@ export default function MapScreen() {
       console.log('[GPS] permission status:', status, '| requested:', shouldRequest);
 
       if (status !== 'granted') {
-        // Only show the banner when we explicitly asked (not on a background recheck)
+        watchingRef.current = false; // allow retry after user grants in Settings
         if (shouldRequest) {
           setPermissionDenied(true);
           console.warn('[GPS] permission denied — user dot will not appear');
@@ -145,7 +147,6 @@ export default function MapScreen() {
 
       // Permission is granted — hide the banner and start tracking
       setPermissionDenied(false);
-      watchingRef.current = true;
       console.log('[GPS] foreground permission granted, starting watchPositionAsync');
 
       locationSubRef.current = await Location.watchPositionAsync(
