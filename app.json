@@ -16,7 +16,8 @@
         "UIBackgroundModes": [
           "location",
           "fetch"
-        ]
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       },
       "bundleIdentifier": "com.tristanandrews.noticeexplore"
     },
