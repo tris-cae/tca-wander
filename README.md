@@ -34,7 +34,8 @@ The target user is someone who travels — domestically or internationally — a
 | Tap card → Edit or Add to Route | ✅ Shipped |
 | Route tab (manual stop ordering) | ✅ Shipped |
 | Profile: notification radius slider (ft / m) | ✅ Shipped |
-| AI route intelligence (Claude via Cloudflare Worker) | 🚧 Worker built, deploying |
+| AI route intelligence (Claude via Cloudflare Worker) | ✅ Worker deployed, wired up |
+| TestFlight distribution (EAS build + submit) | ✅ Build 1 uploaded |
 | AI natural language place search (Claude) | 🔜 Planned |
 | Editable city folder names | 🔜 Planned |
 | Cloud sync / multi-device | 🔜 Planned (requires backend) |
@@ -117,21 +118,41 @@ The Anthropic key has been removed from `.env`. The old key should be revoked at
 
 - **Repo**: `tris-cae/tca-wander` (GitHub)
 - **Bundle ID**: `com.tristanandrews.noticeexplore`
-- **Slug**: `notice-explore`
+- **Expo project**: `@andrewsinc/noticeexplore`
+- **App Store Connect ID**: `6799788158`
+- **Privacy policy**: https://tris-cae.github.io/tca-wander/privacy.html (GitHub Pages, `docs/`)
 - **Default branch**: `main`
 
-### Build & install on device
+### Local build & install on device
 ```bash
-cd /Users/tristanandrews/MyFirstApp
 LANG=en_US.UTF-8 npx expo run:ios --device "Tristan's iPhone" --configuration Release
 ```
 After install, trust the profile at **Settings → General → VPN & Device Management** if prompted.
 
+### Cloud build & ship to TestFlight
+Build config lives in `eas.json` — build profiles and submit settings are
+committed, not configured by hand in a dashboard.
+```bash
+eas build  --platform ios --profile production
+eas submit --platform ios --profile production
+```
+
+### Cloudflare Worker (AI itinerary proxy)
+Config lives in `worker/wrangler.toml`. The Anthropic key is a Wrangler
+secret and is never in the repo or the app bundle.
+```bash
+cd worker
+npx wrangler deploy
+npx wrangler secret put ANTHROPIC_API_KEY   # only when rotating the key
+```
+
 ### Environment variables (`.env` — not committed)
 ```
 EXPO_PUBLIC_GOOGLE_PLACES_API_KEY=...       # Google Places + Geocoding API
-EXPO_PUBLIC_ITINERARY_WORKER_URL=...        # Cloudflare Worker URL (set after wrangler deploy)
+EXPO_PUBLIC_ITINERARY_WORKER_URL=...        # Cloudflare Worker URL (from wrangler deploy)
 ```
+For EAS cloud builds these are stored as EAS secrets rather than read from
+`.env` — see `eas secret:list`.
 
 ---
 
