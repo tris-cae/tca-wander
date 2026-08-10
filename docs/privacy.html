@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — Notice Explore</title>
+<style>
+  :root {
+    --forest: #2D5A30;
+    --sage:   #6B8F6E;
+    --mist:   #F0F4EF;
+    --ink:    #0F1A0F;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2.5rem 1.25rem 5rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    line-height: 1.65;
+    color: var(--ink);
+    background: var(--mist);
+  }
+  main { max-width: 42rem; margin: 0 auto; }
+  h1 {
+    font-size: 1.9rem;
+    margin: 0 0 .25rem;
+    color: var(--forest);
+    letter-spacing: -0.01em;
+  }
+  .updated {
+    color: var(--sage);
+    font-size: .9rem;
+    margin: 0 0 2.5rem;
+  }
+  h2 {
+    font-size: 1.15rem;
+    margin: 2.5rem 0 .6rem;
+    color: var(--forest);
+  }
+  p, li { font-size: 1rem; }
+  ul { padding-left: 1.25rem; }
+  li { margin-bottom: .4rem; }
+  a { color: var(--forest); }
+  .callout {
+    background: #fff;
+    border-left: 3px solid var(--forest);
+    border-radius: 6px;
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+  }
+  footer {
+    margin-top: 3.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #d8e2d6;
+    color: var(--sage);
+    font-size: .875rem;
+  }
+</style>
+</head>
+<body>
+<main>
+
+  <h1>Privacy Policy</h1>
+  <p class="updated">Notice Explore · Last updated 9 August 2026</p>
+
+  <div class="callout">
+    <strong>The short version:</strong> Notice Explore stores your saved places
+    on your phone and nowhere else. There are no accounts, no analytics, and no
+    advertising. Nothing you save is sold or shared.
+  </div>
+
+  <h2>What the app stores</h2>
+  <p>
+    Everything you save — place names, categories, your personal notes,
+    addresses, and coordinates — is written to a database on your device. It is
+    not uploaded to any server, and it is not backed up to us. If you delete the
+    app, that data is gone.
+  </p>
+  <p>
+    Your settings (notification radius, distance units) are also stored locally
+    on the device.
+  </p>
+
+  <h2>Location</h2>
+  <p>Notice Explore requests location access for three purposes:</p>
+  <ul>
+    <li>Showing where you are on the map</li>
+    <li>Saving a place at your current position</li>
+    <li>Alerting you when you come near a place you saved</li>
+  </ul>
+  <p>
+    Proximity alerts need background location access ("Always Allow"), because
+    the app has to notice you are nearby even when it is closed. Your position
+    is compared against your saved places <em>on the device</em>. Your location
+    history is never transmitted or recorded anywhere.
+  </p>
+  <p>
+    You can revoke location access at any time in iOS Settings. The rest of the
+    app continues to work; only proximity alerts stop.
+  </p>
+
+  <h2>Notifications</h2>
+  <p>
+    Proximity alerts are local notifications generated on your device. They are
+    not push notifications sent from a server, and no third party is involved in
+    delivering them. Each place can alert you at most once per 24 hours.
+  </p>
+
+  <h2>When data leaves your device</h2>
+  <p>
+    There are exactly two features that send anything off your phone, and both
+    only run when you actively use them:
+  </p>
+  <ul>
+    <li>
+      <strong>Place and address search.</strong> What you type into the search
+      fields is sent to the Google Places API to return matching results. This
+      is governed by
+      <a href="https://policies.google.com/privacy">Google's privacy policy</a>.
+    </li>
+    <li>
+      <strong>AI itinerary generation.</strong> If you ask the app to build a
+      route, the names, categories, coordinates, and any notes for the relevant
+      saved places are sent to a server we operate (Cloudflare Workers), which
+      forwards them to
+      <a href="https://www.anthropic.com/legal/privacy">Anthropic's Claude API</a>
+      to plan the route. No name, email, device ID, or account identifier is
+      attached to these requests, because the app has no such information. The
+      request is not stored on our server after the response is returned.
+    </li>
+  </ul>
+  <p>
+    If you never use search or route generation, no data leaves your device at all.
+  </p>
+
+  <h2>What we do not do</h2>
+  <ul>
+    <li>No user accounts and no sign-in</li>
+    <li>No analytics, telemetry, or crash-reporting SDKs</li>
+    <li>No advertising and no ad networks</li>
+    <li>No tracking across apps or websites</li>
+    <li>No selling or sharing of personal information</li>
+  </ul>
+
+  <h2>Children</h2>
+  <p>
+    Notice Explore is not directed at children under 13 and does not knowingly
+    collect information from them.
+  </p>
+
+  <h2>Your control over your data</h2>
+  <p>
+    Because everything lives on your device, you are in full control. You can
+    delete an individual place from the List tab, revoke location or notification
+    permission in iOS Settings, or delete the app to remove all of its data at
+    once. There is no server-side copy for us to delete on your behalf.
+  </p>
+
+  <h2>Changes to this policy</h2>
+  <p>
+    If this policy changes in a way that affects how your data is handled, the
+    date at the top of this page will be updated. Material changes will be noted
+    in the app's release notes.
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    Questions about privacy in Notice Explore:
+    <a href="mailto:triscandrews@gmail.com">triscandrews@gmail.com</a>
+  </p>
+
+  <footer>
+    Notice Explore is an independent app built by Tristan Andrews.
+  </footer>
+
+</main>
+</body>
+</html>
