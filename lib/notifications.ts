@@ -8,16 +8,21 @@
 //                                         the 24-hour cooldown and user settings
 //   3. cancelAllNotifications()         — housekeeping; clears queued alerts
 
+import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 
 import { getLastNotifiedAt, recordNotification } from './db';
-import { getNotificationRadius, getNotificationsEnabled } from './settings';
+import { getNotificationRadius, getNotificationsEnabled, getUseFeet } from './settings';
+import { formatDistance } from './units';
 import type { Place } from './models';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 /** Minimum time between notifications for the same place (24 hours). */
 const COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+/** Android notification channel. Ignored on iOS. */
+const ANDROID_CHANNEL_ID = 'proximity';
 
 // ── Foreground presentation ───────────────────────────────────────────────────
 // Tell expo-notifications to show banners even when the app is in the
@@ -42,11 +47,35 @@ Notifications.setNotificationHandler({
  * Returns `true` if permission was granted, `false` otherwise.
  */
 export async function requestNotificationPermission(): Promise<boolean> {
+  await ensureAndroidChannel();
+
   const { status: existing } = await Notifications.getPermissionsAsync();
   if (existing === 'granted') return true;
 
-  const { status } = await Notifications.requestPermissionsAsync();
+  // allowSound must be requested explicitly — the no-argument form does not
+  // reliably include sound authorisation on iOS, which delivers every alert
+  // silently regardless of the `sound` field on the notification itself.
+  const { status } = await Notifications.requestPermissionsAsync({
+    ios: { allowAlert: true, allowBadge: true, allowSound: true },
+  });
   return status === 'granted';
+}
+
+/**
+ * Creates the Android notification channel that carries sound and vibration.
+ * On Android 8+ these properties live on the channel, not the notification —
+ * without a channel that declares them, alerts arrive silent and still.
+ * No-op on iOS.
+ */
+export async function ensureAndroidChannel(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
+    name:             'Nearby places',
+    importance:       Notifications.AndroidImportance.HIGH,
+    sound:            'default',
+    vibrationPattern: [0, 250, 250, 250],
+    enableVibrate:    true,
+  });
 }
 
 // ── Proximity alert ───────────────────────────────────────────────────────────
@@ -107,20 +136,21 @@ export async function scheduleProximityAlert(
   }
 
   // ── Build notification copy ───────────────────────────────────────────────
-  const distanceLabel =
-    distanceKm < 1
-      ? `${Math.round(distanceKm * 1000)} m away`
-      : `${distanceKm.toFixed(1)} km away`;
-
+  // Distance respects the user's feet/metres preference from Profile, via the
+  // same formatter the rest of the app uses.
+  const useFeet       = await getUseFeet();
+  const distanceLabel = `${formatDistance(distanceKm * 1000, useFeet)} away`;
   const categoryLabel = place.category ? `${place.category} · ` : '';
 
   await Notifications.scheduleNotificationAsync({
     content: {
       title: `📍 You're near ${place.name}`,
       body:  `${categoryLabel}${distanceLabel}`,
-      // Carry the place id for a future deep-link tap handler
+      // Read by the tap handler in lib/notification-routing.ts to open this place
       data:  { placeId: place.id },
-      sound: true,
+      // 'default' (not `true`) is the documented value and the one iOS honours.
+      sound: 'default',
+      ...(Platform.OS === 'android' ? { channelId: ANDROID_CHANNEL_ID } : {}),
     },
     trigger: null,   // fire immediately
   });

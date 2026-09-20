@@ -1,5 +1,5 @@
 import * as Location from 'expo-location';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, AppState, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Region } from 'react-native-maps';
@@ -306,6 +306,7 @@ export default function MapScreen() {
   // the map tab, so useFocusEffect alone won't catch it.
   useEffect(() => placeSavedEvent.subscribe(reloadPlaces), [reloadPlaces]);
 
+
   // ── Zoom ──────────────────────────────────────────────────────────────────
 
   const handleZoom = useCallback((direction: 'in' | 'out') => {
@@ -351,6 +352,42 @@ export default function MapScreen() {
       if (finished) setSelectedPlace(null);
     });
   }, [cardAnim]);
+
+  // ── Focus a place from a notification tap ─────────────────────────────────
+  // lib/notification-routing.ts routes here with ?focusPlaceId=<id> when the
+  // user taps a proximity alert. We wait for `places` to be populated, because
+  // on a cold start the param arrives long before the database read resolves.
+  // Declared after openCard so it isn't referenced before initialisation.
+
+  const { focusPlaceId } = useLocalSearchParams<{ focusPlaceId?: string }>();
+
+  // Remembers which id we already focused, so leaving and returning to the tab
+  // doesn't re-centre the map and re-open the card from a stale param.
+  const focusedIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!focusPlaceId || places.length === 0) return;
+    if (focusedIdRef.current === focusPlaceId) return;
+
+    const place = places.find((p) => p.id === focusPlaceId);
+    focusedIdRef.current = focusPlaceId;
+
+    if (!place) {
+      // Deleted between the alert firing and the tap — nothing to show
+      console.warn(`[Map] focusPlaceId ${focusPlaceId} not found — ignoring`);
+      return;
+    }
+
+    const region = {
+      latitude:       place.coordinates.lat,
+      longitude:      place.coordinates.lng,
+      latitudeDelta:  0.008,
+      longitudeDelta: 0.008,
+    };
+    currentRegion.current = region;
+    mapRef.current?.animateToRegion(region, 600);
+    openCard(place);
+  }, [focusPlaceId, places, openCard]);
 
   // The card starts 320 px below its resting position and slides up to 0.
   // 320 px gives enough travel distance for the taller branded card.

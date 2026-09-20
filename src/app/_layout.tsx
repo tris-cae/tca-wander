@@ -18,6 +18,7 @@ import React, { useEffect, useState } from 'react';
 import { useColorScheme } from 'react-native';
 
 import { initDb } from '../../lib/db';
+import { useNotificationHandlers } from '../../lib/notification-routing';
 // Importing this module registers the background location task with TaskManager.
 // It must be imported here (at the root layout) so the task is defined before
 // any navigation or component rendering happens.
@@ -70,20 +71,32 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, fontError, dbReady]);
 
-  // Bug 8 — Request notification permission on every app open when status is
-  // still undetermined. Fires once the app is fully ready (fonts + DB) so the
-  // dialog appears over a fully-rendered UI rather than a blank screen.
+  // Request notification permission on every app open when status is still
+  // undetermined. Fires once the app is fully ready (fonts + DB) so the dialog
+  // appears over a fully-rendered UI rather than a blank screen.
+  //
+  // allowSound MUST be requested explicitly. Calling requestPermissionsAsync()
+  // with no arguments does not reliably include the sound authorisation on iOS,
+  // which makes every notification arrive silently no matter what `sound` is set
+  // to on the notification itself — that was the cause of the silent alerts.
   useEffect(() => {
     if (!dbReady || (!fontsLoaded && !fontError)) return;
     Notifications.getPermissionsAsync().then(({ status }) => {
       if (status === 'undetermined') {
         console.log('[Notifications] permission undetermined — requesting on launch');
-        Notifications.requestPermissionsAsync();
+        Notifications.requestPermissionsAsync({
+          ios: { allowAlert: true, allowBadge: true, allowSound: true },
+        });
       } else {
         console.log('[Notifications] permission status on launch:', status);
       }
     });
   }, [dbReady, fontsLoaded, fontError]);
+
+  // Foreground haptics + tap-to-open-the-place. Passed the same readiness flag
+  // used below, so a cold-start tap waits for the navigator before routing.
+  const navigatorReady = Boolean(fontsLoaded || fontError) && dbReady;
+  useNotificationHandlers(navigatorReady);
 
   // Hold the entire render until both fonts AND the database are ready.
   // This is the critical guard — without it, tab screens race against initDb().
