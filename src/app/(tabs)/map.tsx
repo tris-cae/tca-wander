@@ -38,6 +38,29 @@ function formatDistance(km: number): string {
   return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`;
 }
 
+// Initial compass bearing from one point to another, in degrees clockwise from
+// north (0 = north, 90 = east). This is the direction you would set off in to
+// walk a great-circle path — over walking distances it is simply "that way".
+function bearingTo(
+  from: { latitude: number; longitude: number },
+  to:   { lat: number; lng: number }
+): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const toDeg = (r: number) => (r * 180) / Math.PI;
+
+  const lat1 = toRad(from.latitude);
+  const lat2 = toRad(to.lat);
+  const dLng = toRad(to.lng - from.longitude);
+
+  const y = Math.sin(dLng) * Math.cos(lat2);
+  const x =
+    Math.cos(lat1) * Math.sin(lat2) -
+    Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+
+  // atan2 returns -180…180; shift into 0…360 so it reads as a compass bearing
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+
 // Human-readable label for each sourceType value on the Place model.
 function formatSourceType(type: Place['sourceType']): string {
   switch (type) {
@@ -403,6 +426,57 @@ export default function MapScreen() {
       ? formatDistance(haversineDistanceKm(userCoords, selectedPlace.coordinates))
       : null;
 
+  // ── Compass bearing to the open place ─────────────────────────────────────
+  // Which way to physically turn to face the place. Two pieces: the compass
+  // bearing from the user to the place (fixed by geography) minus the direction
+  // the phone is currently pointing (changes as the user turns). The difference
+  // is how far the arrow rotates on screen.
+
+  // Direction the top of the phone is pointing, degrees clockwise from north.
+  const [heading, setHeading] = useState<number | null>(null);
+
+  useEffect(() => {
+    // Only run the magnetometer while a card is actually open — it is a
+    // meaningful battery draw and useless with nothing to point at.
+    if (!selectedPlace) {
+      setHeading(null);
+      return;
+    }
+
+    let sub: Location.LocationSubscription | null = null;
+    let cancelled = false;
+
+    Location.watchHeadingAsync((h) => {
+      // trueHeading is -1 until the magnetometer calibrates; magHeading is
+      // available sooner and is close enough for "which way do I turn".
+      const deg = h.trueHeading >= 0 ? h.trueHeading : h.magHeading;
+      setHeading(deg);
+    })
+      .then((s) => {
+        if (cancelled) { s.remove(); return; }
+        sub = s;
+      })
+      .catch((err) => {
+        // Simulators and devices without a magnetometer throw here. The arrow
+        // simply stays hidden; distance still shows.
+        console.log('[Compass] heading unavailable:', err?.message);
+      });
+
+    return () => { cancelled = true; sub?.remove(); };
+  }, [selectedPlace]);
+
+  const bearingDeg =
+    userCoords && selectedPlace
+      ? bearingTo(userCoords, selectedPlace.coordinates)
+      : null;
+
+  // Rotation to apply to the arrow: where the place is, relative to where the
+  // phone is pointing. Null until both a GPS fix and a heading exist.
+  const arrowRotation =
+    bearingDeg !== null && heading !== null
+      ? (bearingDeg - heading + 360) % 360
+      : null;
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -631,6 +705,21 @@ export default function MapScreen() {
             <Text style={styles.cardCategory}>{selectedPlace.category}</Text>
             {distanceText !== null && (
               <View style={styles.distancePill}>
+                {/* Arrow points at the place in the real world: it rotates as
+                    the user turns, so facing it means walking toward the place.
+                    Hidden until both a GPS fix and a compass heading exist. */}
+                {arrowRotation !== null && (
+                  <Text
+                    style={[
+                      styles.bearingArrow,
+                      { transform: [{ rotate: `${arrowRotation}deg` }] },
+                    ]}
+                    // The glyph itself points up, so 0° = straight ahead
+                    accessibilityLabel={`Bearing ${Math.round(arrowRotation)} degrees`}
+                  >
+                    ↑
+                  </Text>
+                )}
                 <Text style={styles.distancePillText}>{distanceText}</Text>
               </View>
             )}
@@ -862,8 +951,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
 
-  // Pill showing straight-line distance to the place
+  // Pill showing the bearing arrow and straight-line distance to the place
   distancePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
     backgroundColor: Colors.sageTint,
     borderRadius: Radius.lg,       // 20 px
     paddingHorizontal: Spacing.md,
@@ -872,6 +964,13 @@ const styles = StyleSheet.create({
   distancePillText: {
     fontFamily: Typography.bodyFont,
     fontSize: FontSize.metadata,   // 12 px
+    color: Colors.forest,
+  },
+  // Rotates to point at the place. Slightly larger than the distance text so
+  // the direction reads at a glance while walking.
+  bearingArrow: {
+    fontSize: 14,
+    lineHeight: 16,
     color: Colors.forest,
   },
 
