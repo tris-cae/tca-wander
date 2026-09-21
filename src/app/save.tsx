@@ -21,6 +21,7 @@ import * as Notifications from 'expo-notifications';
 import { Colors, FontSize, Radius, Spacing, Typography } from '../../lib/theme';
 import { deletePlace, savePlace, updatePlace } from '../../lib/db';
 import { placeSavedEvent } from '../../lib/places-event';
+import { placeTypeLabel } from '../../lib/place-types';
 
 // ─── Category list ────────────────────────────────────────────────────────────
 
@@ -305,6 +306,32 @@ export default function SaveScreen() {
               const addr = details?.formatted_address ?? data.description;
               if (addr) setPickedAddress(addr);
             }
+            // Fill the category from Google's place types when the user hasn't
+            // typed one — one less field to complete by hand.
+            if (!category) {
+              // `types` is present in Google's response but missing from the
+              // library's TypeScript definitions, hence the cast.
+              const types =
+                (data as any).types ?? (details as any)?.types;
+              const label = placeTypeLabel(types);
+              if (label) setCategory(label);
+            }
+          }}
+          // Each result shows name, category and address rather than a bare
+          // name — a tester couldn't tell two identically-named businesses
+          // apart, and the address is what actually distinguishes them.
+          renderRow={(data: any) => {
+            const main      = data.structured_formatting?.main_text ?? data.description;
+            const secondary = data.structured_formatting?.secondary_text;
+            const label     = placeTypeLabel(data.types);
+            return (
+              <View style={styles.resultRow}>
+                <Text style={styles.resultName} numberOfLines={1}>{main}</Text>
+                <Text style={styles.resultMeta} numberOfLines={1}>
+                  {label ? `${label} · ` : ''}{secondary ?? ''}
+                </Text>
+              </View>
+            );
           }}
           onFail={(err) => console.warn('[Places Name] onFail:', JSON.stringify(err))}
           debounce={300}
@@ -714,5 +741,27 @@ const styles = StyleSheet.create({
     fontFamily: Typography.bodyFont,
     fontSize:   FontSize.body,
     color:      Colors.locationPin,
+  },
+
+  // ── Search result row ──────────────────────────────────────────────────────
+  // Two lines: the business name, then category + address so two places with
+  // the same name can be told apart without leaving the app.
+
+  resultRow: {
+    paddingVertical:   10,
+    paddingHorizontal: Spacing.md,
+  },
+
+  resultName: {
+    fontFamily: Typography.bodyFontMedium,
+    fontSize:   FontSize.body,
+    color:      Colors.ink,
+  },
+
+  resultMeta: {
+    fontFamily: Typography.bodyFont,
+    fontSize:   FontSize.metadata,
+    color:      Colors.sage,
+    marginTop:  2,
   },
 });

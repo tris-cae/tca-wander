@@ -2,7 +2,7 @@ import * as Location from 'expo-location';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, AppState, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
-import MapView, { Marker, Region } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE, Region } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomTabInset } from '@/constants/theme';
@@ -412,10 +412,32 @@ export default function MapScreen() {
       <MapView
         ref={mapRef}
         style={StyleSheet.absoluteFill}
+        // Google rather than Apple MapKit. Apple's map gives the app nothing at
+        // all when a business is tapped — no name, no id, not even an event —
+        // so onPoiClick below (and therefore name auto-fill) only exists here.
+        provider={PROVIDER_GOOGLE}
         // We draw our own orange dot, so we disable the native blue one
         showsUserLocation={false}
         showsCompass
         showsScale
+        // Tapping a business/landmark label on the map. Google hands us the
+        // place's name and id directly, so we can pre-fill the Save screen
+        // instead of making the user type it.
+        onPoiClick={(e) => {
+          closeCard();
+          const { coordinate, name } = e.nativeEvent;
+          // `name` reuses the same param the Edit flow uses, so the existing
+          // pre-fill effect in save.tsx populates the field with no new wiring.
+          // Passing lat/lng also triggers the reverse-geocode that fills address.
+          router.push({
+            pathname: '/save',
+            params: {
+              lat:  String(coordinate.latitude),
+              lng:  String(coordinate.longitude),
+              name: name ?? '',
+            },
+          });
+        }}
         // Tapping anywhere on the map dismisses the open card.
         // Marker taps bubble up to this handler too, so we check suppressMapPress
         // before closing — if a Marker just set the flag, skip the close entirely.

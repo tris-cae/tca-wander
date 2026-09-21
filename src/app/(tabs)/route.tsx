@@ -3,6 +3,7 @@ import * as Location from 'expo-location';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Linking,
   Pressable,
   StyleSheet,
   Text,
@@ -97,6 +98,41 @@ export default function RouteScreen() {
       setStatus('error');
     }
   }, [hours, vibe]);
+
+  // ── Hand off to Google Maps ────────────────────────────────────────────────
+  // Google's directions URL takes the whole route in one link: the last stop is
+  // the destination and everything before it rides along as waypoints. Apple
+  // Maps has no waypoint parameter at all — it accepts a single destination —
+  // which is why this hands off to Google regardless of the user's default.
+
+  const openWalkingDirections = useCallback(async () => {
+    if (stops.length === 0) return;
+
+    const coord = (s: ItineraryStop) => `${s.coordinates.lat},${s.coordinates.lng}`;
+
+    // Last stop is the destination; the rest become ordered waypoints.
+    const destination = coord(stops[stops.length - 1]);
+    const waypoints   = stops.slice(0, -1).map(coord).join('|');
+
+    const params = new URLSearchParams({
+      api:         '1',
+      destination,
+      travelmode:  'walking',
+    });
+    // Omit the parameter entirely for a single stop — an empty waypoints value
+    // makes Google Maps reject the whole URL.
+    if (waypoints) params.set('waypoints', waypoints);
+
+    const url = `https://www.google.com/maps/dir/?${params.toString()}`;
+
+    try {
+      await Linking.openURL(url);
+    } catch (err) {
+      console.error('[Route] could not open Google Maps:', err);
+      setErrMsg('Could not open Google Maps.');
+      setStatus('error');
+    }
+  }, [stops]);
 
   // ── Draggable card ─────────────────────────────────────────────────────────
 
@@ -241,12 +277,20 @@ export default function RouteScreen() {
       {/* ── Results heading ───────────────────────────────────────────────── */}
 
       {stops.length > 0 && (
-        <View style={styles.resultsHeadingRow}>
-          <Text style={styles.resultsHeading}>
-            Your route · {stops.length} stop{stops.length !== 1 ? 's' : ''}
-          </Text>
-          <Text style={styles.resultsHint}>Long-press a card to reorder</Text>
-        </View>
+        <>
+          <Pressable style={styles.directionsBtn} onPress={openWalkingDirections}>
+            <Text style={styles.directionsBtnText}>
+              Walk this route in Google Maps
+            </Text>
+          </Pressable>
+
+          <View style={styles.resultsHeadingRow}>
+            <Text style={styles.resultsHeading}>
+              Your route · {stops.length} stop{stops.length !== 1 ? 's' : ''}
+            </Text>
+            <Text style={styles.resultsHint}>Long-press a card to reorder</Text>
+          </View>
+        </>
       )}
     </View>
   );
@@ -465,6 +509,25 @@ const styles = StyleSheet.create({
     color: Colors.sage,
     textAlign: 'center',
     lineHeight: 18,
+  },
+
+  // ── Directions hand-off ────────────────────────────────────────────────────
+
+  directionsBtn: {
+    backgroundColor:   Colors.white,
+    borderWidth:       1.5,
+    borderColor:       Colors.forest,
+    borderRadius:      Radius.md,
+    paddingVertical:   13,
+    alignItems:        'center',
+    justifyContent:    'center',
+    marginBottom:      Spacing.lg,
+  },
+
+  directionsBtnText: {
+    fontFamily: Typography.bodyFontMedium,
+    fontSize:   FontSize.body,
+    color:      Colors.forest,
   },
 
   // ── Results heading ────────────────────────────────────────────────────────
