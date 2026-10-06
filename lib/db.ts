@@ -1,3 +1,4 @@
+import * as Crypto from 'expo-crypto';
 import * as SQLite from 'expo-sqlite';
 import type { Day, Itinerary, Place, Trip } from './models';
 
@@ -68,6 +69,45 @@ async function _createTables(db: SQLite.SQLiteDatabase): Promise<void> {
   } catch {
     // Column already exists — safe to ignore
   }
+
+  // ── Migration: updatedAt ────────────────────────────────────────────────────
+  // Records when a row last changed. Cloud sync needs this to decide which copy
+  // of a place is newer; without it two devices editing the same place have no
+  // way to resolve the conflict.
+  //
+  // NOT NULL is deliberately avoided: SQLite cannot add a NOT NULL column
+  // without a constant default, and we want existing rows backfilled from their
+  // own savedAt rather than all sharing one migration-time timestamp.
+  try {
+    await db.execAsync(`ALTER TABLE places ADD COLUMN updatedAt TEXT`);
+  } catch {
+    // Column already exists — safe to ignore
+  }
+
+  // Backfill: a row that has never been edited was last changed when it was
+  // created. Runs every launch but only touches rows still NULL, so it is a
+  // no-op after the first time.
+  await db.execAsync(
+    `UPDATE places SET updatedAt = savedAt WHERE updatedAt IS NULL`
+  );
+
+  // ── Migration: deletedAt (soft delete) ─────────────────────────────────────
+  // NULL = live, an ISO timestamp = deleted. Rows are kept so a deletion can be
+  // synced to other devices later; a hard DELETE just makes a row vanish with
+  // nothing left to propagate.
+  //
+  // Every read of `places` must filter `deletedAt IS NULL`.
+  try {
+    await db.execAsync(`ALTER TABLE places ADD COLUMN deletedAt TEXT`);
+  } catch {
+    // Column already exists — safe to ignore
+  }
+
+  // Partial index so the deletedAt IS NULL filter on every read stays cheap
+  await db.execAsync(`
+    CREATE INDEX IF NOT EXISTS idx_places_live
+      ON places (deletedAt) WHERE deletedAt IS NULL;
+  `);
 
   // Index on lat and lng so coordinate lookups are fast
   await db.execAsync(`
@@ -145,8 +185,18 @@ async function _createTables(db: SQLite.SQLiteDatabase): Promise<void> {
 
 // Generates a unique ID from the current timestamp and a random string.
 // Collision-resistant enough for local data on a single device.
+// Generates a RFC 4122 v4 UUID for new rows.
+//
+// The previous scheme (timestamp + Math.random) was fine on a single device but
+// is not safe once places sync across devices: two phones creating a place in
+// the same millisecond rely entirely on Math.random for uniqueness, and the
+// format is not what any backend will expect as a primary key.
+//
+// IDs already in the database are left exactly as they are — this only affects
+// rows created from now on, so existing places keep working and keep their links
+// to trip_places, day_places and notification_log.
 function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2);
+  return Crypto.randomUUID();
 }
 
 // Returns the current moment as an ISO string (e.g. "2026-03-28T10:00:00.000Z")
@@ -166,6 +216,8 @@ type PlaceRow = {
   sourceUrl: string | null;
   sourceType: 'instagram' | 'maps' | 'manual';
   savedAt: string;
+  updatedAt: string | null;   // NULL only in the instant before the backfill runs
+  deletedAt: string | null;   // NULL = live
   visited: number;  // SQLite stores booleans as integers: 0 = false, 1 = true
 };
 
@@ -182,6 +234,10 @@ function rowToPlace(row: PlaceRow): Place {
     sourceUrl: row.sourceUrl,
     sourceType: row.sourceType,
     savedAt: row.savedAt,
+    // Fall back to savedAt for any row the backfill has somehow not reached,
+    // so updatedAt is never surfaced as null to the rest of the app
+    updatedAt: row.updatedAt ?? row.savedAt,
+    deletedAt: row.deletedAt,
     // SQLite returns 0/1 integers — convert to a proper boolean
     visited: row.visited === 1,
   };
@@ -196,7 +252,7 @@ async function _getTripPlaces(
     `SELECT p.*
        FROM places p
        JOIN trip_places tp ON tp.placeId = p.id
-      WHERE tp.tripId = ?
+      WHERE tp.tripId = ? AND p.deletedAt IS NULL
       ORDER BY p.savedAt DESC`,
     [tripId]
   );
@@ -212,7 +268,7 @@ async function _getDayPlaces(
     `SELECT p.*
        FROM places p
        JOIN day_places dp ON dp.placeId = p.id
-      WHERE dp.dayId = ?
+      WHERE dp.dayId = ? AND p.deletedAt IS NULL
       ORDER BY dp.sortOrder ASC`,
     [dayId]
   );
@@ -246,15 +302,23 @@ async function _getItineraryDays(
 // You don't need to provide id, savedAt, or visited — they are set automatically.
 // Returns the complete Place object including the generated id and savedAt.
 export async function savePlace(
-  input: Omit<Place, 'id' | 'savedAt' | 'visited'>
+  input: Omit<Place, 'id' | 'savedAt' | 'updatedAt' | 'deletedAt' | 'visited'>
 ): Promise<Place> {
   const db = getDb();
-  // New places always start as unvisited
-  const place: Place = { ...input, id: generateId(), savedAt: now(), visited: false };
+  // New places always start as unvisited, live, and never-yet-edited
+  const ts = now();
+  const place: Place = {
+    ...input,
+    id:        generateId(),
+    savedAt:   ts,
+    updatedAt: ts,
+    deletedAt: null,
+    visited:   false,
+  };
 
   await db.runAsync(
-    `INSERT INTO places (id, name, category, lat, lng, address, note, sourceUrl, sourceType, savedAt, visited)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO places (id, name, category, lat, lng, address, note, sourceUrl, sourceType, savedAt, updatedAt, visited)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       place.id,
       place.name,
@@ -266,6 +330,7 @@ export async function savePlace(
       place.sourceUrl,
       place.sourceType,
       place.savedAt,
+      place.updatedAt,        // equals savedAt on creation
       0,                      // visited = false
     ]
   );
@@ -280,7 +345,7 @@ export async function savePlace(
 export async function getPlace(id: string): Promise<Place | null> {
   const db = getDb();
   const row = await db.getFirstAsync<PlaceRow>(
-    `SELECT * FROM places WHERE id = ?`,
+    `SELECT * FROM places WHERE id = ? AND deletedAt IS NULL`,
     [id]
   );
   return row ? rowToPlace(row) : null;
@@ -290,7 +355,7 @@ export async function getPlace(id: string): Promise<Place | null> {
 export async function getAllPlaces(): Promise<Place[]> {
   const db = getDb();
   const rows = await db.getAllAsync<PlaceRow>(
-    `SELECT * FROM places ORDER BY savedAt DESC`
+    `SELECT * FROM places WHERE deletedAt IS NULL ORDER BY savedAt DESC`
   );
   const places = rows.map(rowToPlace);
   console.log(`[DB] getAllPlaces returned ${places.length} row(s)`);
@@ -306,7 +371,7 @@ export async function getPlaceByCoordinates(
 ): Promise<Place | null> {
   const db = getDb();
   const row = await db.getFirstAsync<PlaceRow>(
-    `SELECT * FROM places WHERE lat = ? AND lng = ?`,
+    `SELECT * FROM places WHERE lat = ? AND lng = ? AND deletedAt IS NULL`,
     [lat, lng]
   );
   return row ? rowToPlace(row) : null;
@@ -330,6 +395,7 @@ export async function getPlacesNearCoordinates(
     `SELECT * FROM places
       WHERE lat BETWEEN ? AND ?
         AND lng BETWEEN ? AND ?
+        AND deletedAt IS NULL
       ORDER BY savedAt DESC`,
     [lat - latDelta, lat + latDelta, lng - lngDelta, lng + lngDelta]
   );
@@ -403,6 +469,11 @@ export async function updatePlace(
   // Nothing to do if no recognised fields were passed
   if (fields.length === 0) return;
 
+  // Every mutation stamps updatedAt — this is what lets sync decide which copy
+  // of a place is the newer one.
+  fields.push('updatedAt = ?');
+  values.push(now());
+
   await db.runAsync(
     `UPDATE places SET ${fields.join(', ')} WHERE id = ?`,
     [...values, id]
@@ -414,19 +485,32 @@ export async function updatePlace(
 export async function setPlaceVisited(id: string, visited: boolean): Promise<void> {
   const db = getDb();
   await db.runAsync(
-    `UPDATE places SET visited = ? WHERE id = ?`,
-    [visited ? 1 : 0, id]
+    `UPDATE places SET visited = ?, updatedAt = ? WHERE id = ?`,
+    [visited ? 1 : 0, now(), id]
   );
   console.log(`[DB] setPlaceVisited: place ${id} → visited=${visited}`);
 }
 
 // ─── Places — Delete ──────────────────────────────────────────────────────────
 
-// Permanently deletes a place. It is automatically removed from any trips or
-// days it was linked to (the database cascades the deletion).
+// Soft-deletes a place: the row is kept and stamped with deletedAt, and every
+// read filters it out, so from the app's point of view it is gone.
+//
+// The row survives so the deletion can be synced to the user's other devices
+// later. A hard DELETE would simply make the row vanish, leaving nothing to
+// tell another device that it should disappear there too.
+//
+// Links in trip_places / day_places are intentionally left alone — those joins
+// filter on p.deletedAt IS NULL, and keeping them means an undelete would
+// restore the place to its trips as well.
 export async function deletePlace(id: string): Promise<void> {
   const db = getDb();
-  await db.runAsync(`DELETE FROM places WHERE id = ?`, [id]);
+  const ts = now();
+  await db.runAsync(
+    `UPDATE places SET deletedAt = ?, updatedAt = ? WHERE id = ? AND deletedAt IS NULL`,
+    [ts, ts, id]
+  );
+  console.log(`[DB] deletePlace: soft-deleted ${id}`);
 }
 
 // ─── Notification log ─────────────────────────────────────────────────────────
