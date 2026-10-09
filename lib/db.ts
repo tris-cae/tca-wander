@@ -103,6 +103,17 @@ async function _createTables(db: SQLite.SQLiteDatabase): Promise<void> {
     // Column already exists — safe to ignore
   }
 
+  // ── Migration: placeId ──────────────────────────────────────────────────────
+  // Google's place ID is the one piece of Places data their terms let us keep
+  // permanently (it is explicitly exempt from the caching restrictions), and it
+  // is how we re-identify a place later without re-searching for it by name.
+  // Null for every place saved before this column existed.
+  try {
+    await db.execAsync(`ALTER TABLE places ADD COLUMN placeId TEXT`);
+  } catch {
+    // Column already exists — safe to ignore
+  }
+
   // Partial index so the deletedAt IS NULL filter on every read stays cheap
   await db.execAsync(`
     CREATE INDEX IF NOT EXISTS idx_places_live
@@ -218,6 +229,7 @@ type PlaceRow = {
   savedAt: string;
   updatedAt: string | null;   // NULL only in the instant before the backfill runs
   deletedAt: string | null;   // NULL = live
+  placeId: string | null;     // Google place ID; NULL for places saved before it existed
   visited: number;  // SQLite stores booleans as integers: 0 = false, 1 = true
 };
 
@@ -238,6 +250,7 @@ function rowToPlace(row: PlaceRow): Place {
     // so updatedAt is never surfaced as null to the rest of the app
     updatedAt: row.updatedAt ?? row.savedAt,
     deletedAt: row.deletedAt,
+    placeId: row.placeId,
     // SQLite returns 0/1 integers — convert to a proper boolean
     visited: row.visited === 1,
   };
@@ -317,8 +330,8 @@ export async function savePlace(
   };
 
   await db.runAsync(
-    `INSERT INTO places (id, name, category, lat, lng, address, note, sourceUrl, sourceType, savedAt, updatedAt, visited)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO places (id, name, category, lat, lng, address, note, sourceUrl, sourceType, savedAt, updatedAt, placeId, visited)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       place.id,
       place.name,
@@ -331,12 +344,68 @@ export async function savePlace(
       place.sourceType,
       place.savedAt,
       place.updatedAt,        // equals savedAt on creation
+      place.placeId,
       0,                      // visited = false
     ]
   );
 
   console.log('[DB] savePlace success:', JSON.stringify(place));
   return place;
+}
+
+// Saves many places at once inside a single transaction.
+//
+// Used by the bulk import. Two reasons this exists rather than calling
+// savePlace() in a loop: a loop of 20 inserts is 20 separate round trips to the
+// database, and — more importantly — if the app were killed halfway through, a
+// loop would leave half an import behind. A transaction either writes every row
+// or none of them.
+//
+// Goes through exactly the same INSERT and the same id/timestamp generation as a
+// manual save, so an imported place is indistinguishable from a hand-saved one
+// apart from its sourceType.
+export async function savePlaces(
+  inputs: Omit<Place, 'id' | 'savedAt' | 'updatedAt' | 'deletedAt' | 'visited'>[]
+): Promise<Place[]> {
+  const db = getDb();
+  if (inputs.length === 0) return [];
+
+  const ts = now();
+  const places: Place[] = inputs.map((input) => ({
+    ...input,
+    id:        generateId(),
+    savedAt:   ts,
+    updatedAt: ts,
+    deletedAt: null,
+    visited:   false,
+  }));
+
+  await db.withTransactionAsync(async () => {
+    for (const place of places) {
+      await db.runAsync(
+        `INSERT INTO places (id, name, category, lat, lng, address, note, sourceUrl, sourceType, savedAt, updatedAt, placeId, visited)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          place.id,
+          place.name,
+          place.category,
+          place.coordinates.lat,
+          place.coordinates.lng,
+          place.address,
+          place.note,
+          place.sourceUrl,
+          place.sourceType,
+          place.savedAt,
+          place.updatedAt,
+          place.placeId,
+          0,
+        ]
+      );
+    }
+  });
+
+  console.log(`[DB] savePlaces: wrote ${places.length} place(s) in one transaction`);
+  return places;
 }
 
 // ─── Places — Read ────────────────────────────────────────────────────────────
@@ -460,6 +529,10 @@ export async function updatePlace(
   if (updates.sourceType !== undefined) {
     fields.push('sourceType = ?');
     values.push(updates.sourceType);
+  }
+  if (updates.placeId !== undefined) {
+    fields.push('placeId = ?');
+    values.push(updates.placeId);
   }
   if (updates.visited !== undefined) {
     fields.push('visited = ?');

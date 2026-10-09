@@ -42,6 +42,12 @@ export interface Place {
   // decide which device holds the newer copy of a place.
   updatedAt: string;
 
+  // Google's permanent identifier for this place (e.g. "ChIJN1t_tDeuEmsRUsoyG83frY4").
+  // Null for places saved before this field existed, and for pins the user dropped
+  // by hand (which correspond to no Google place at all). This is the only piece of
+  // Places data Google's terms permit us to keep indefinitely.
+  placeId: string | null;
+
   // When the user deleted this place (ISO date string), or null if it is live.
   // Deleted places stay in the database so the deletion can be synced to the
   // user's other devices; every read filters them out, so the rest of the app

@@ -105,6 +105,9 @@ export default function SaveScreen() {
   // In edit mode paramAddress is already a confirmed address so show it as a chip immediately.
   const [pickedAddress,     setPickedAddress]     = useState<string | null>(paramAddress || null);
   const [pickedCoordinates, setPickedCoordinates] = useState<{ lat: number; lng: number } | null>(null);
+  // Google's permanent id for the selected place, when one was chosen from search.
+  // Stays null for a hand-dropped pin, which corresponds to no Google place.
+  const [pickedPlaceId,     setPickedPlaceId]     = useState<string | null>(null);
   const [geocoding,         setGeocoding]         = useState(false);
 
   const autocompleteRef     = useRef<any>(null);
@@ -216,6 +219,8 @@ export default function SaveScreen() {
         address:    pickedAddress,
         note:       note.trim() || null,
         sourceUrl:  null,
+        // Set when the place came from a Places search; null for a hand-dropped pin
+        placeId:    pickedPlaceId,
         sourceType: 'manual',
       });
 
@@ -306,6 +311,9 @@ export default function SaveScreen() {
               const addr = details?.formatted_address ?? data.description;
               if (addr) setPickedAddress(addr);
             }
+            // Google's place id is the one Places field their terms let us keep
+            // permanently, so hold on to it whenever a real place was selected.
+            if (data.place_id) setPickedPlaceId(data.place_id);
             // Fill the category from Google's place types when the user hasn't
             // typed one — one less field to complete by hand.
             if (!category) {
