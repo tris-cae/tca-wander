@@ -5,3 +5,16 @@ compatibility_flags = ["nodejs_compat"]
 
 [observability]
 enabled = true
+
+# Per-device daily counters for rate limiting.
+#
+# Create the namespace once, then paste the id it prints here:
+#
+#   npx wrangler kv namespace create RATE_LIMIT
+#
+# Until the id is filled in, the Worker still runs — withinRateLimit() treats a
+# missing binding as "allow", so a misconfiguration never locks users out. It
+# just means no rate limiting is in force, so do not leave it blank.
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "REPLACE_WITH_ID_FROM_WRANGLER_KV_NAMESPACE_CREATE"
