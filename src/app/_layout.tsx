@@ -12,13 +12,14 @@ import {
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import * as Notifications from 'expo-notifications';
-import { Stack } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useColorScheme } from 'react-native';
 
 import { initDb } from '../../lib/db';
 import { useNotificationHandlers } from '../../lib/notification-routing';
+import { shouldShowOnboarding } from '../../lib/onboarding';
 // Importing this module registers the background location task with TaskManager.
 // It must be imported here (at the root layout) so the task is defined before
 // any navigation or component rendering happens.
@@ -98,6 +99,18 @@ export default function RootLayout() {
   const navigatorReady = Boolean(fontsLoaded || fontError) && dbReady;
   useNotificationHandlers(navigatorReady);
 
+  // Show the welcome once per install. Runs only after the navigator exists,
+  // and only once per launch — the ref stops a re-render from pushing it twice.
+  const onboardingChecked = useRef(false);
+  useEffect(() => {
+    if (!navigatorReady || onboardingChecked.current) return;
+    onboardingChecked.current = true;
+
+    shouldShowOnboarding().then((show) => {
+      if (show) router.push('/onboarding');
+    });
+  }, [navigatorReady]);
+
   // Hold the entire render until both fonts AND the database are ready.
   // This is the critical guard — without it, tab screens race against initDb().
   if ((!fontsLoaded && !fontError) || !dbReady) {
@@ -118,6 +131,22 @@ export default function RootLayout() {
         <Stack.Screen
           name="save"
           options={{ presentation: 'modal', headerShown: false }}
+        />
+
+        {/* Bulk import. Pushed rather than modal so the review screen can be
+            reached with a back gesture from either entry point. */}
+        <Stack.Screen name="add-many" />
+        <Stack.Screen name="add-screenshots" />
+        <Stack.Screen name="import-review" />
+        <Stack.Screen
+          name="import-limit"
+          options={{ presentation: 'modal', headerShown: false }}
+        />
+
+        {/* First-open welcome */}
+        <Stack.Screen
+          name="onboarding"
+          options={{ presentation: 'fullScreenModal', headerShown: false, gestureEnabled: false }}
         />
       </Stack>
     </ThemeProvider>
