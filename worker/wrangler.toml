@@ -17,4 +17,4 @@ enabled = true
 # just means no rate limiting is in force, so do not leave it blank.
 [[kv_namespaces]]
 binding = "RATE_LIMIT"
-id = "REPLACE_WITH_ID_FROM_WRANGLER_KV_NAMESPACE_CREATE"
+id = "7998f36bd89a41a49779a51a9665969a"
