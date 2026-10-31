@@ -1,6 +1,9 @@
 import Slider from '@react-native-community/slider';
+import { router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   ScrollView,
   StyleSheet,
   Switch,
@@ -11,6 +14,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomTabInset } from '@/constants/theme';
+import { AUTH_COPY, fill } from '../../../lib/auth-copy';
+import { useAuth } from '../../../lib/auth';
+import { useSync } from '../../../lib/use-sync';
 import { Colors, FontSize, Radius, Spacing, Typography } from '../../../lib/theme';
 import {
   DEFAULT_RADIUS_M,
@@ -92,6 +98,50 @@ function displayLabel(metres: number, useFeet: boolean): string {
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
+  const { user, signOut, deleteAccount } = useAuth();
+  const sync = useSync();
+
+  // ── Account state ──────────────────────────────────────────────────────────
+
+  const [accountBusy, setAccountBusy] = useState(false);
+
+  // What the line under the email says. Ordered worst-news-first: a failure
+  // matters more than a queue, and a queue matters more than "all good".
+  const syncLine =
+    sync.syncing        ? AUTH_COPY.account.syncing
+    : sync.error        ? AUTH_COPY.account.syncFailed
+    : sync.pending > 0  ? fill(AUTH_COPY.account.syncPending, { n: String(sync.pending) })
+    : AUTH_COPY.account.signedInBody;
+
+  // Apple guideline 5.1.1(v): an app that creates accounts must let people
+  // delete them from inside the app. Two taps, both of them explicit, because
+  // this cannot be undone.
+  const handleDeleteAccount = useCallback(() => {
+    Alert.alert(
+      AUTH_COPY.deleteAccount.title,
+      `${AUTH_COPY.deleteAccount.body}\n\n${AUTH_COPY.deleteAccount.keepsLocal}`,
+      [
+        { text: AUTH_COPY.deleteAccount.cancel, style: 'cancel' },
+        {
+          text: AUTH_COPY.deleteAccount.confirm,
+          style: 'destructive',
+          onPress: () => {
+            setAccountBusy(true);
+            deleteAccount()
+              .catch((err) => Alert.alert(AUTH_COPY.errors.generic, err?.message ?? ''))
+              .finally(() => setAccountBusy(false));
+          },
+        },
+      ],
+    );
+  }, [deleteAccount]);
+
+  const handleSignOut = useCallback(() => {
+    setAccountBusy(true);
+    signOut()
+      .catch((err) => Alert.alert(AUTH_COPY.errors.generic, err?.message ?? ''))
+      .finally(() => setAccountBusy(false));
+  }, [signOut]);
 
   // ── Settings state ─────────────────────────────────────────────────────────
 
@@ -176,6 +226,79 @@ export default function ProfileScreen() {
         <Text style={styles.screenSubtitle}>
           Manage your notification preferences
         </Text>
+
+        {/* ── Account section ── */}
+        <Text style={styles.sectionLabel}>{AUTH_COPY.account.sectionLabel}</Text>
+
+        <View style={styles.settingsCard}>
+          {user ? (
+            <>
+              <View style={styles.row}>
+                <View style={styles.rowText}>
+                  <Text style={styles.rowTitle}>
+                    {fill(AUTH_COPY.account.signedInTitle, { email: user.email ?? 'your account' })}
+                  </Text>
+                  <Text style={styles.rowSubtitle}>{syncLine}</Text>
+                </View>
+                {(accountBusy || sync.syncing) && <ActivityIndicator color={Colors.sage} />}
+              </View>
+
+              <View style={styles.divider} />
+
+              {/* Manual retry. Sync is automatic, but when something is stuck
+                  the useful thing is a button that visibly does something. */}
+              <TouchableOpacity
+                style={styles.row}
+                onPress={sync.sync}
+                activeOpacity={0.7}
+                disabled={sync.syncing || accountBusy}
+              >
+                <Text style={styles.actionRow}>{AUTH_COPY.account.syncNowButton}</Text>
+              </TouchableOpacity>
+
+              <View style={styles.divider} />
+
+              <TouchableOpacity
+                style={styles.row}
+                onPress={handleSignOut}
+                activeOpacity={0.7}
+                disabled={accountBusy}
+              >
+                <Text style={styles.rowTitle}>{AUTH_COPY.account.signOutButton}</Text>
+              </TouchableOpacity>
+
+              <View style={styles.divider} />
+
+              <TouchableOpacity
+                style={styles.row}
+                onPress={handleDeleteAccount}
+                activeOpacity={0.7}
+                disabled={accountBusy}
+              >
+                <Text style={styles.destructiveRow}>{AUTH_COPY.account.deleteButton}</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <View style={styles.row}>
+                <View style={styles.rowText}>
+                  <Text style={styles.rowTitle}>{AUTH_COPY.account.signedOutTitle}</Text>
+                  <Text style={styles.rowSubtitle}>{AUTH_COPY.account.signedOutBody}</Text>
+                </View>
+              </View>
+
+              <View style={styles.divider} />
+
+              <TouchableOpacity
+                style={styles.row}
+                onPress={() => router.push('/sign-in')}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.actionRow}>{AUTH_COPY.account.signedOutButton}</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
 
         {/* ── Proximity Notifications section ── */}
         <Text style={styles.sectionLabel}>Proximity notifications</Text>
@@ -378,6 +501,23 @@ const styles = StyleSheet.create({
     color:      Colors.sage,
     lineHeight: 18,
     marginTop:  2,
+  },
+
+  // ── Account rows ───────────────────────────────────────────────────────────
+
+  // A tappable row that does something ordinary — forest, like other actions.
+  actionRow: {
+    fontFamily: Typography.bodyFontMedium,
+    fontSize:   FontSize.body,
+    color:      Colors.forest,
+  },
+
+  // Reserved for deleting the account. The only red text in the app, so it
+  // cannot be mistaken for anything else.
+  destructiveRow: {
+    fontFamily: Typography.bodyFontMedium,
+    fontSize:   FontSize.body,
+    color:      Colors.errorText,
   },
 
   // ── Radius value + unit toggle ─────────────────────────────────────────────

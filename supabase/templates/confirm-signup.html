@@ -1,0 +1,36 @@
+<!--
+  The email a BRAND NEW user gets on their first email sign-in.
+
+  Near-identical to magic-link.html, and deliberately a separate file: Supabase
+  picks the template by whether the address already has an account, and the app
+  cannot tell which one it triggered. If only one of the two carried {{ .Token }},
+  email sign-in would work for existing users and quietly fail for new ones —
+  exactly the kind of bug nobody finds until a stranger tries to sign up.
+-->
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#F0F4EF;padding:32px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+  <tr>
+    <td align="center">
+      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:420px;background:#FFFFFF;border-radius:12px;padding:32px;">
+        <tr>
+          <td>
+            <h1 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#0F1A0F;">
+              Welcome to Notice Explore
+            </h1>
+            <p style="margin:0 0 24px;font-size:14px;line-height:22px;color:#6B8F6E;">
+              Enter this code in the app to finish setting up your account.
+            </p>
+
+            <p style="margin:0 0 24px;font-size:32px;letter-spacing:8px;font-weight:600;color:#0F1A0F;text-align:center;background:#F0F4EF;border-radius:8px;padding:16px;">
+              {{ .Token }}
+            </p>
+
+            <p style="margin:0;font-size:12px;line-height:18px;color:#6B8F6E;">
+              The code expires in an hour. If you didn’t ask for this, you can
+              ignore this email — no account will be created.
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>

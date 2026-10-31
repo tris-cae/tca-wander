@@ -134,6 +134,81 @@ async function _createTables(db: SQLite.SQLiteDatabase): Promise<void> {
     );
   `);
 
+  // ── Sync bookkeeping ───────────────────────────────────────────────────────
+  //
+  // sync_meta is a two-column scratchpad for the sync engine: how far it has
+  // pulled, and whether it is currently applying changes that came FROM the
+  // server (which the triggers below need to know about).
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS sync_meta (
+      key   TEXT PRIMARY KEY,
+      value TEXT
+    );
+  `);
+
+  // The outbox: which rows have changed on this phone and not yet reached the
+  // server. One row per place, not one per edit — editing the same place ten
+  // times offline should result in one upload, not ten.
+  //
+  // It records only the id. The payload is read from `places` at send time, so
+  // what reaches the server is always the current state rather than a replay of
+  // old intentions.
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS sync_outbox (
+      entity    TEXT NOT NULL,
+      entityId  TEXT NOT NULL,
+      queuedAt  TEXT NOT NULL,
+      attempts  INTEGER NOT NULL DEFAULT 0,
+      lastError TEXT,
+      PRIMARY KEY (entity, entityId)
+    );
+  `);
+
+  // ── Outbox triggers ────────────────────────────────────────────────────────
+  //
+  // Every write to `places` queues that place for upload, automatically.
+  //
+  // This is deliberately a database trigger rather than a line of code in
+  // savePlace(), updatePlace(), deletePlace() and friends. Those are five call
+  // sites today and more tomorrow, and the failure mode of forgetting one is
+  // the worst kind: the app looks fine, the place saves, and it quietly never
+  // reaches the server. A trigger cannot be forgotten by someone adding a sixth
+  // write path, and it runs inside the same transaction as the change, so the
+  // two can never come apart — if the write is rolled back, so is the queueing.
+  //
+  // Soft deletes need no special handling: deletePlace() is an UPDATE that sets
+  // deletedAt, so it queues like any other edit and the server receives a row
+  // that happens to be marked deleted.
+  //
+  // The WHEN clause is what stops an infinite loop. Applying a change that came
+  // FROM the server is still a write to `places`, and without the guard it
+  // would queue that row straight back for upload, which would come back down
+  // again, forever. lib/sync.ts sets `applyingRemote` for exactly as long as it
+  // is writing server data, inside the same transaction.
+  await db.execAsync(`
+    CREATE TRIGGER IF NOT EXISTS places_outbox_insert
+    AFTER INSERT ON places
+    WHEN (SELECT value FROM sync_meta WHERE key = 'applyingRemote') IS NULL
+    BEGIN
+      INSERT INTO sync_outbox (entity, entityId, queuedAt)
+      VALUES ('place', NEW.id, NEW.updatedAt)
+      ON CONFLICT(entity, entityId)
+      DO UPDATE SET queuedAt = excluded.queuedAt, attempts = 0, lastError = NULL;
+    END;
+  `);
+
+  await db.execAsync(`
+    CREATE TRIGGER IF NOT EXISTS places_outbox_update
+    AFTER UPDATE ON places
+    WHEN (SELECT value FROM sync_meta WHERE key = 'applyingRemote') IS NULL
+    BEGIN
+      INSERT INTO sync_outbox (entity, entityId, queuedAt)
+      VALUES ('place', NEW.id, NEW.updatedAt)
+      ON CONFLICT(entity, entityId)
+      DO UPDATE SET queuedAt = excluded.queuedAt, attempts = 0, lastError = NULL;
+    END;
+  `);
+
   // Stores each trip the user creates
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS trips (
@@ -584,6 +659,200 @@ export async function deletePlace(id: string): Promise<void> {
     [ts, ts, id]
   );
   console.log(`[DB] deletePlace: soft-deleted ${id}`);
+}
+
+// ─── Sync support ─────────────────────────────────────────────────────────────
+//
+// Everything the sync engine needs from the database lives here, so that
+// lib/sync.ts can be about *when* and *what order* without containing any SQL.
+// The rule that all SQL lives in this file is what makes the schema reviewable
+// in one sitting.
+
+/** One queued upload. The payload is read fresh at send time, not stored here. */
+export interface OutboxEntry {
+  entity:   'place';
+  entityId: string;
+  queuedAt: string;
+  attempts: number;
+}
+
+/** A place as it is sent to and received from the server, deleted ones included. */
+export interface PlaceForSync extends PlaceRow {}
+
+/** Reads a bookkeeping value, e.g. how far the last pull got. */
+export async function getSyncMeta(key: string): Promise<string | null> {
+  const db = getDb();
+  const row = await db.getFirstAsync<{ value: string | null }>(
+    `SELECT value FROM sync_meta WHERE key = ?`,
+    [key]
+  );
+  return row?.value ?? null;
+}
+
+export async function setSyncMeta(key: string, value: string | null): Promise<void> {
+  const db = getDb();
+  await db.runAsync(
+    `INSERT INTO sync_meta (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    [key, value]
+  );
+}
+
+/** Everything waiting to be uploaded, oldest change first. */
+export async function getOutbox(limit = 200): Promise<OutboxEntry[]> {
+  const db = getDb();
+  return db.getAllAsync<OutboxEntry>(
+    `SELECT entity, entityId, queuedAt, attempts
+       FROM sync_outbox
+      ORDER BY queuedAt ASC
+      LIMIT ?`,
+    [limit]
+  );
+}
+
+export async function countOutbox(): Promise<number> {
+  const db = getDb();
+  const row = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM sync_outbox`
+  );
+  return row?.n ?? 0;
+}
+
+/**
+ * Reads places by id for upload, INCLUDING soft-deleted ones.
+ *
+ * Deliberately not getPlace(), which filters `deletedAt IS NULL` as every
+ * ordinary read should. A deletion that never left the phone is precisely the
+ * thing sync most needs to send — filtering it out here would mean deletes
+ * synced to no one, and a place the user removed reappearing on their iPad.
+ */
+export async function getPlacesForSync(ids: string[]): Promise<PlaceForSync[]> {
+  if (ids.length === 0) return [];
+  const db = getDb();
+  const holes = ids.map(() => '?').join(', ');
+  return db.getAllAsync<PlaceForSync>(
+    `SELECT * FROM places WHERE id IN (${holes})`,
+    ids
+  );
+}
+
+/**
+ * Removes entries from the outbox after a successful upload.
+ *
+ * Takes the queuedAt each entry had when it was read, and deletes only if it
+ * still matches. If the user edited that place while the upload was in flight,
+ * the trigger will have bumped queuedAt, the match fails, and the entry stays
+ * queued — so the newer edit is sent on the next run instead of being thrown
+ * away as "already uploaded". Losing an edit this way would be invisible and
+ * permanent, which is why the check is here rather than a plain DELETE.
+ */
+export async function clearOutboxEntries(entries: OutboxEntry[]): Promise<void> {
+  if (entries.length === 0) return;
+  const db = getDb();
+  await db.withTransactionAsync(async () => {
+    for (const e of entries) {
+      await db.runAsync(
+        `DELETE FROM sync_outbox
+          WHERE entity = ? AND entityId = ? AND queuedAt = ?`,
+        [e.entity, e.entityId, e.queuedAt]
+      );
+    }
+  });
+}
+
+/** Records why an upload failed, so a stuck queue can be diagnosed. */
+export async function recordOutboxFailure(
+  entries: OutboxEntry[],
+  message: string
+): Promise<void> {
+  if (entries.length === 0) return;
+  const db = getDb();
+  await db.withTransactionAsync(async () => {
+    for (const e of entries) {
+      await db.runAsync(
+        `UPDATE sync_outbox SET attempts = attempts + 1, lastError = ?
+          WHERE entity = ? AND entityId = ?`,
+        [message.slice(0, 500), e.entity, e.entityId]
+      );
+    }
+  });
+}
+
+/**
+ * Writes places that came from the server into the local database.
+ *
+ * The `applyingRemote` flag suppresses the outbox triggers for the duration,
+ * so incoming changes are not immediately queued to be sent straight back.
+ * It is set and cleared inside the same transaction as the writes, which means
+ * a crash halfway through cannot leave it stuck on — if it could, the phone
+ * would stop queueing its own changes and silently stop syncing.
+ */
+export async function applyRemotePlaces(rows: PlaceForSync[]): Promise<void> {
+  if (rows.length === 0) return;
+  const db = getDb();
+
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `INSERT INTO sync_meta (key, value) VALUES ('applyingRemote', '1')
+       ON CONFLICT(key) DO UPDATE SET value = '1'`
+    );
+
+    for (const r of rows) {
+      await db.runAsync(
+        `INSERT INTO places
+           (id, name, category, lat, lng, address, note, sourceUrl, sourceType,
+            savedAt, updatedAt, deletedAt, placeId, visited)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           name       = excluded.name,
+           category   = excluded.category,
+           lat        = excluded.lat,
+           lng        = excluded.lng,
+           address    = excluded.address,
+           note       = excluded.note,
+           sourceUrl  = excluded.sourceUrl,
+           sourceType = excluded.sourceType,
+           savedAt    = excluded.savedAt,
+           updatedAt  = excluded.updatedAt,
+           deletedAt  = excluded.deletedAt,
+           placeId    = excluded.placeId,
+           visited    = excluded.visited
+         WHERE excluded.updatedAt >= places.updatedAt`,
+        [
+          r.id, r.name, r.category, r.lat, r.lng, r.address, r.note,
+          r.sourceUrl, r.sourceType, r.savedAt, r.updatedAt, r.deletedAt,
+          r.placeId, r.visited,
+        ]
+      );
+    }
+
+    await db.runAsync(`DELETE FROM sync_meta WHERE key = 'applyingRemote'`);
+  });
+}
+
+/**
+ * Queues every place on this phone for upload.
+ *
+ * Run once, the first time someone signs in, so that places saved before they
+ * had an account are backed up rather than stranded. Writes straight to the
+ * outbox instead of touching `places`, because bumping updatedAt on every row
+ * would make years-old places look like they were all edited today — and under
+ * last-write-wins that would let a freshly installed phone overwrite good data
+ * on the server with its own empty-ish copy.
+ */
+export async function queueAllPlacesForSync(): Promise<number> {
+  const db = getDb();
+  const result = await db.runAsync(
+    // COALESCE because queuedAt is NOT NULL and updatedAt is not. The backfill
+    // in _createTables() fills every NULL on launch, so in practice there is
+    // nothing to coalesce — but if that ever failed, the price should not be a
+    // constraint violation thrown in the middle of someone's first sign-in.
+    `INSERT INTO sync_outbox (entity, entityId, queuedAt)
+     SELECT 'place', id, COALESCE(updatedAt, savedAt) FROM places
+     WHERE true
+     ON CONFLICT(entity, entityId) DO NOTHING`
+  );
+  return result.changes;
 }
 
 // ─── Notification log ─────────────────────────────────────────────────────────

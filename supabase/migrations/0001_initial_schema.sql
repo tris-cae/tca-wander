@@ -19,9 +19,11 @@
 -- been shared with them. There is no application code that can accidentally
 -- bypass this — the database refuses.
 
--- ─── Extensions ───────────────────────────────────────────────────────────────
-
-create extension if not exists "uuid-ossp";
+-- Server-generated ids below use gen_random_uuid(), which is part of Postgres
+-- itself from version 13 on. Deliberately NOT uuid-ossp's uuid_generate_v4():
+-- Supabase installs extensions into an `extensions` schema that is not on the
+-- search path during a migration, so that call fails with "function does not
+-- exist" even though the extension is present.
 
 -- ─── profiles ─────────────────────────────────────────────────────────────────
 -- One row per account. Mirrors Supabase's own auth.users table, which we cannot
@@ -61,8 +63,9 @@ create trigger on_auth_user_created
 -- rather than a translation.
 
 create table public.places (
-  -- Generated on the device, not here. Never use gen_random_uuid() as a default:
-  -- the phone's id is the real identity and the server must preserve it.
+  -- Generated on the device, not here — no default on purpose. The phone's id
+  -- is the real identity and the server must preserve it. (Invites and reports
+  -- below do default to gen_random_uuid(); those genuinely start on the server.)
   id         uuid primary key,
   owner_id   uuid not null references auth.users (id) on delete cascade,
 
@@ -164,7 +167,7 @@ create index list_shares_user_idx on public.list_shares (user_id);
 -- an open link becomes a named person the owner can later remove.
 
 create table public.list_invites (
-  id         uuid primary key default uuid_generate_v4(),
+  id         uuid primary key default gen_random_uuid(),
   list_id    uuid not null references public.lists (id) on delete cascade,
   -- Random, unguessable, and the only secret in the link.
   token      text not null unique,
@@ -199,7 +202,7 @@ create index blocks_blocked_idx on public.blocks (blocked_id);
 -- hours, so these are read by a human, not by code.
 
 create table public.reports (
-  id           uuid primary key default uuid_generate_v4(),
+  id           uuid primary key default gen_random_uuid(),
   reporter_id  uuid not null references auth.users (id) on delete cascade,
   -- What is being reported. Nullable because the thing may be deleted later and
   -- the report should survive it.

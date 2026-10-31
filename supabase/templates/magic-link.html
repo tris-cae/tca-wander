@@ -1,0 +1,38 @@
+<!--
+  The email an existing user gets when signing in with their address.
+
+  It carries a CODE, not a link. The app asks for six digits, so a link here
+  would be a dead end for anyone who tapped it — and on iOS a magic link
+  routinely opens in a different browser than the one that started the sign-in,
+  which breaks the round trip entirely.
+
+  {{ .Token }} is the six-digit code, set by otp_length in supabase/config.toml.
+  Change the length there and this email follows automatically.
+-->
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#F0F4EF;padding:32px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+  <tr>
+    <td align="center">
+      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:420px;background:#FFFFFF;border-radius:12px;padding:32px;">
+        <tr>
+          <td>
+            <h1 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#0F1A0F;">
+              Your sign-in code
+            </h1>
+            <p style="margin:0 0 24px;font-size:14px;line-height:22px;color:#6B8F6E;">
+              Enter this in Notice Explore to finish signing in.
+            </p>
+
+            <p style="margin:0 0 24px;font-size:32px;letter-spacing:8px;font-weight:600;color:#0F1A0F;text-align:center;background:#F0F4EF;border-radius:8px;padding:16px;">
+              {{ .Token }}
+            </p>
+
+            <p style="margin:0;font-size:12px;line-height:18px;color:#6B8F6E;">
+              The code expires in an hour. If you didn’t ask to sign in, you can
+              ignore this email — nothing has changed on your account.
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>

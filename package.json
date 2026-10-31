@@ -9,8 +9,9 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "vitest run && npm run test:db",
+    "test:watch": "vitest",
+    "test:db": "bash scripts/test-migration.sh && bash scripts/test-outbox.sh && bash scripts/test-upgrade-to-sync.sh"
   },
   "dependencies": {
     "@expo-google-fonts/dm-sans": "^0.4.2",
@@ -20,7 +21,9 @@
     "@react-navigation/bottom-tabs": "^7.15.5",
     "@react-navigation/elements": "^2.9.10",
     "@react-navigation/native": "^7.1.33",
+    "@supabase/supabase-js": "^2.118.0",
     "expo": "55.0.10-canary-20260328-2049187",
+    "expo-apple-authentication": "55.0.10-canary-20260328-2049187",
     "expo-constants": "55.0.10-canary-20260328-2049187",
     "expo-crypto": "55.0.11-canary-20260328-2049187",
     "expo-device": "55.0.11-canary-20260328-2049187",

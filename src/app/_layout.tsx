@@ -17,6 +17,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import React, { useEffect, useRef, useState } from 'react';
 import { useColorScheme } from 'react-native';
 
+import { AuthProvider } from '../../lib/auth';
 import { initDb } from '../../lib/db';
 import { useNotificationHandlers } from '../../lib/notification-routing';
 import { shouldShowOnboarding } from '../../lib/onboarding';
@@ -119,6 +120,13 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+      {/*
+        AuthProvider sits inside ThemeProvider but outside the Stack, so every
+        screen can read the session and a sign-in anywhere updates all of them.
+        It does not block rendering: the app is fully usable signed out, and an
+        account only adds backup and sharing on top.
+      */}
+      <AuthProvider>
       <AnimatedSplashOverlay />
       {/*
         Root Stack — sits above the tab navigator so that push screens
@@ -148,7 +156,15 @@ export default function RootLayout() {
           name="onboarding"
           options={{ presentation: 'fullScreenModal', headerShown: false, gestureEnabled: false }}
         />
+
+        {/* Accounts. A modal rather than a tab because signing in is something
+            you do once and leave, not a place you visit. */}
+        <Stack.Screen
+          name="sign-in"
+          options={{ presentation: 'modal', headerShown: false }}
+        />
       </Stack>
+      </AuthProvider>
     </ThemeProvider>
   );
 }

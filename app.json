@@ -19,7 +19,8 @@
         ],
         "ITSAppUsesNonExemptEncryption": false
       },
-      "bundleIdentifier": "com.tristanandrews.noticeexplore"
+      "bundleIdentifier": "com.tristanandrews.noticeexplore",
+      "usesAppleSignIn": true
     },
     "android": {
       "adaptiveIcon": {
@@ -58,6 +59,7 @@
         }
       ],
       "react-native-maps",
+      "expo-apple-authentication",
       [
         "expo-location",
         {

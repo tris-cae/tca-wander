@@ -1,0 +1,26 @@
+-- ─── Undo one line of 0003 ────────────────────────────────────────────────────
+--
+-- 0003 revoked EXECUTE on can_view_list() from anon and authenticated, on the
+-- reasoning that nobody calls it directly over the API. True, but beside the
+-- point: it is called by the row-level security policies on lists, places and
+-- list_places, and Postgres evaluates a policy expression with the privileges
+-- of whoever is running the query — not those of the table owner. Without
+-- EXECUTE, the policy itself cannot run.
+--
+-- The failure mode is nasty. With no rows in a table there is nothing for the
+-- policy to be checked against, so every test still passes and every query
+-- still returns an empty list. It only breaks once a real person has saved a
+-- real list, at which point reading it fails with "permission denied for
+-- function can_view_list" — a backend error surfacing as the app losing
+-- someone's places. That is a bad thing to discover in TestFlight, and a worse
+-- thing to discover in the App Store.
+--
+-- Revoking it bought nothing in the first place. can_view_list() answers one
+-- yes/no question about one list id, and for a signed-out caller auth.uid() is
+-- null, so the answer is always no. There is nothing in it to protect.
+--
+-- The rest of 0003 stands: claim_invite, delete_account and changes_since are
+-- genuinely called over the API and genuinely should refuse strangers at the
+-- door. Those three stay revoked.
+
+grant execute on function public.can_view_list(uuid) to anon, authenticated;
