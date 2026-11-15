@@ -1,0 +1,83 @@
+# ─── Stop the database going to sleep ─────────────────────────────────────────
+#
+# Supabase pauses a free project after about seven days with no traffic. A
+# paused project does not merely slow down — its web address stops resolving in
+# DNS altogether, so every sign-in and every backup in the app fails, and the
+# app cannot tell the difference between that and being offline.
+#
+# That is exactly what happened on 2026-11-11: the project was set up on
+# 22 October, nothing touched it, and by the time anyone tried to sign in the
+# server had been gone for days with no warning to anyone.
+#
+# So this sends one small query every three days, which is enough to count as
+# traffic and leaves a wide margin either side of Supabase's seven-day window.
+#
+# This is a stopgap, not a fix. It is here because the beta is small. Before
+# real users arrive, the project should move to a paid plan, which does not
+# pause at all — a keep-alive that quietly stops working leaves you exactly
+# where you started, and you find out from a user rather than from us.
+#
+# ── Two ways this can silently stop working ──
+#
+#   1. GitHub disables scheduled workflows in a repository with no commits for
+#      60 days. Push something, or re-enable it under the Actions tab.
+#   2. Scheduled workflows only ever run from the DEFAULT branch. This file has
+#      no effect until it is on main, however correct it looks on a branch.
+#
+# Both of those fail silently, which is why the job below is written to fail
+# LOUDLY — a red cross and an email beat a job that reports success while the
+# database sleeps.
+
+name: Keep Supabase awake
+
+on:
+  schedule:
+    # 06:17 UTC every third day. A few minutes past the hour on purpose:
+    # GitHub delays jobs scheduled on the hour, when everyone else runs theirs.
+    - cron: '17 6 */3 * *'
+  # So it can be run by hand from the Actions tab to check it still works,
+  # rather than waiting three days to find out.
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query the database
+        env:
+          URL: ${{ secrets.SUPABASE_URL }}
+          KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${URL:-}" ] || [ -z "${KEY:-}" ]; then
+            echo "::error::SUPABASE_URL or SUPABASE_PUBLISHABLE_KEY is not set in"
+            echo "::error::this repository's Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+          # A real read of a real table, not a health check. What pauses is the
+          # database, so the thing that keeps it awake has to touch the database.
+          # plan_limits is the one table readable without being signed in, and
+          # it holds nothing private — just the free-tier allowances.
+          code=$(curl -sS -o /tmp/body -w '%{http_code}' --max-time 30 \
+            "$URL/rest/v1/plan_limits?select=plan" \
+            -H "apikey: $KEY" -H "Authorization: Bearer $KEY" || echo 000)
+
+          echo "HTTP $code"
+          head -c 300 /tmp/body || true
+          echo
+
+          case "$code" in
+            200) echo "Database is awake." ;;
+            000) echo "::error::Could not reach the project at all. If its name no longer"
+                 echo "::error::resolves in DNS, it is paused — restore it in the Supabase"
+                 echo "::error::dashboard, because this job cannot wake a paused project."
+                 exit 1 ;;
+            521|522|523) echo "::error::DNS resolves but nothing is serving (HTTP $code)."
+                 echo "::error::The project is paused or still restoring."
+                 exit 1 ;;
+            *)   echo "::error::Unexpected response (HTTP $code). The project may be awake"
+                 echo "::error::but misconfigured — check the secrets above are current."
+                 exit 1 ;;
+          esac
