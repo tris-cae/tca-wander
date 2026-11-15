@@ -42,3 +42,6 @@ app-example
 # generated native folders
 /ios
 /android
+
+# Supabase CLI scratch state (stored project ref, etc). Machine-local.
+supabase/.temp/
