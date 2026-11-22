@@ -61,24 +61,61 @@
 <main>
 
   <h1>Privacy Policy</h1>
-  <p class="updated">Notice Explore · Last updated 9 October 2026</p>
+  <p class="updated">Notice Explore · Last updated 21 November 2026</p>
 
   <div class="callout">
-    <strong>The short version:</strong> Notice Explore stores your saved places
-    on your phone and nowhere else. There are no accounts, no analytics, and no
-    advertising. Nothing you save is sold or shared.
+    <strong>The short version:</strong> Notice Explore works without an account,
+    and if you never make one your saved places stay on your phone. If you do
+    create an account, your places are backed up to our server so you can get
+    them back on a new phone. There are no analytics and no advertising, and
+    nothing you save is ever sold or shared.
   </div>
+
+  <h2>Accounts are optional</h2>
+  <p>
+    You can use the whole app without signing in. Creating an account does one
+    thing: it backs your saved places up, so they survive losing your phone.
+  </p>
+  <p>
+    You sign in with Apple or Google. We never see or handle your password —
+    Apple or Google confirm who you are and tell us only an email address and a
+    unique identifier for you. If you use Sign in with Apple and choose
+    <em>Hide My Email</em>, we receive Apple's relay address and never your real
+    one.
+  </p>
+  <p>
+    Alongside that we store the date you signed up and which provider you last
+    used, the latter only so the sign-in screen can put the right button first
+    and you don't accidentally end up with two accounts.
+  </p>
 
   <h2>What the app stores</h2>
   <p>
     Everything you save — place names, categories, your personal notes,
-    addresses, and coordinates — is written to a database on your device. It is
-    not uploaded to any server, and it is not backed up to us. If you delete the
-    app, that data is gone.
+    addresses, and coordinates — is written to a database on your device, and
+    the app reads from that copy. This is what makes it work with no signal.
   </p>
   <p>
-    Your settings (notification radius, distance units) are also stored locally
-    on the device.
+    <strong>If you are signed in</strong>, that same information is also copied
+    to our server so it can be restored later. The copy includes anything you
+    have written in a note, so treat notes as data you are storing with us
+    rather than only on your phone.
+  </p>
+  <p>
+    <strong>If you are not signed in</strong>, none of it leaves the device, and
+    deleting the app deletes the only copy.
+  </p>
+  <p>
+    Your settings (notification radius, distance units) are stored only on the
+    device and are never uploaded.
+  </p>
+
+  <h2>Who stores it for us</h2>
+  <p>
+    Accounts and backed-up places are held on
+    <a href="https://supabase.com/privacy">Supabase</a>, which runs the database
+    and the sign-in system on our behalf. They process this data for us and do
+    not use it for their own purposes.
   </p>
 
   <h2>Location</h2>
@@ -115,8 +152,15 @@
     Your saved places are not sent to Google; only the map view is.
   </p>
   <p>
-    Beyond the map, four features send data off your phone, and each only runs
-    when you actively use it:
+    If you are signed in, your saved places are backed up to our server. Unlike
+    everything else on this page, that happens <em>automatically</em> in the
+    background — when you save or edit a place, when you open the app, and when
+    you sign in. It is the one thing here you do not trigger by hand, which is
+    exactly why it is worth knowing about. It stops entirely if you sign out.
+  </p>
+  <p>
+    Beyond the map and that backup, four features send data off your phone, and
+    each only runs when you actively use it:
   </p>
   <ul>
     <li>
@@ -140,22 +184,33 @@
       saved places are sent to a server we operate (Cloudflare Workers), which
       forwards them to
       <a href="https://www.anthropic.com/legal/privacy">Anthropic's Claude API</a>
-      to plan the route. No name, email, device ID, or account identifier is
-      attached to these requests, because the app has no such information. The
-      request is not stored on our server after the response is returned.
+      to plan the route. The request is not stored on our server after the
+      response is returned.
     </li>
   </ul>
   <p>
-    Apart from the map display, nothing leaves your device unless you search, generate a route, or send directions to Google Maps.
+    Your account is not involved in any of those four. Your name, email, and
+    account identifier are never attached to them, even while you are signed in.
+  </p>
+  <p>
+    Search and screenshot reading do send one thing: a random identifier created
+    when you install the app, used to cap how many lookups a single device can
+    make per day. It is not derived from you, your phone, or your account, it is
+    not linked to your saved places, and reinstalling the app replaces it.
+  </p>
+  <p>
+    Apart from the map display and the backup described above, nothing leaves
+    your device unless you search, read a screenshot, generate a route, or send
+    directions to Google Maps.
   </p>
 
   <h2>What we do not do</h2>
   <ul>
-    <li>No user accounts and no sign-in</li>
     <li>No analytics, telemetry, or crash-reporting SDKs</li>
     <li>No advertising and no ad networks</li>
     <li>No tracking across apps or websites</li>
     <li>No selling or sharing of personal information</li>
+    <li>No passwords — Apple and Google handle sign-in</li>
   </ul>
 
   <h2>Children</h2>
@@ -166,10 +221,33 @@
 
   <h2>Your control over your data</h2>
   <p>
-    Because everything lives on your device, you are in full control. You can
-    delete an individual place from the List tab, revoke location or notification
-    permission in iOS Settings, or delete the app to remove all of its data at
-    once. There is no server-side copy for us to delete on your behalf.
+    You can delete an individual place from the List tab, and revoke location or
+    notification permission at any time in iOS Settings.
+  </p>
+  <p>
+    <strong>If you never signed in</strong>, deleting the app removes everything,
+    because there is no other copy.
+  </p>
+  <p>
+    <strong>If you did sign in</strong>, deleting the app no longer deletes
+    everything — your backup stays on our server so you can restore it. To
+    remove that too, use <em>Delete account</em> on the Profile tab. It erases
+    your account and everything attached to it: your profile, your saved places,
+    and your lists. It cannot be undone, and we keep no copy afterwards.
+  </p>
+  <p>
+    One deliberate exception: if someone has reported a shared list for abuse,
+    that report is kept after the account it names is deleted, with the reporter
+    detached from it. Otherwise anyone could erase a complaint about themselves
+    by deleting their account. Those reports hold no saved places or notes.
+  </p>
+  <p>
+    Signing out is not deletion. It stops the backup and leaves the places on
+    your phone, and your server copy stays until you delete the account.
+  </p>
+  <p>
+    If you would rather not do it in the app, email the address below and we
+    will delete your account for you.
   </p>
 
   <h2>Changes to this policy</h2>
